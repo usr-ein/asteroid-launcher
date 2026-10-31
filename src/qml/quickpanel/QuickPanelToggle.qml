@@ -39,6 +39,7 @@ MouseArea {
     property alias icon: ic.name
     property bool checkable: false
     property bool checked: false
+    property color tint: "#222222"
 
     property bool rangeBased: false
     property int rangeMin: 0
@@ -95,7 +96,7 @@ MouseArea {
     Rectangle {
         anchors.fill: parent
         radius: width/2
-        color: "#222222"
+        color: ma.tint
         opacity: ma.pressed ? 0.6 : ma.checked ?  0.75 : (ma.checkable ? 0.2 : 1)
     }
 

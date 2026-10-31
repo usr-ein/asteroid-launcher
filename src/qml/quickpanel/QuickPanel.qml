@@ -582,17 +582,27 @@ Item {
 
     Component {
         id: hapticsToggleComponent
+        // Cycles the three alert profiles: sound and vibration ("outdoors"),
+        // vibration only ("general"), then nothing ("silent").
         QuickPanelToggle {
-            icon: "ios-watch-vibrating"
+            readonly property string profile: profileControl.profile
+
+            icon: profile === "outdoors" ? "ios-notifications" :
+                  profile === "general" ? "ios-notifications-outline" : "ios-notifications-off"
+            tint: profile === "outdoors" ? "#ff9800" :
+                  profile === "general" ? "#2196f3" : "#222222"
             checkable: true
-            checked: profileControl.profile == "general"
+            checked: profile === "outdoors" || profile === "general"
 
             onClicked: {
-                if(checked) {
+                if (profile === "outdoors") {
+                    profileControl.profile = "general"
+                    feedbackDelayTimer.start()
+                } else if (profile === "general") {
                     profileControl.profile = "silent"
                 } else {
-                    profileControl.profile = "general";
-                    feedbackDelayTimer.start();
+                    profileControl.profile = "outdoors"
+                    feedbackDelayTimer.start()
                 }
             }
 
