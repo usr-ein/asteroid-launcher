@@ -343,6 +343,18 @@ Item {
         id: centerPanel;
         Item {
             property bool nightstandWatchfaceActive: nightstandMode.active && nightstandUseCustomWatchface.value && watchfaceNightstandSource.value != watchFaceSource.value
+            // A watch face can stop the panel swipes while one of its own
+            // controls is dragged, such as a volume bar, with the forbid*
+            // flags the other panels use. A face without them changes nothing.
+            readonly property Item activeFace: nightstandWatchfaceActive ? nightstandWatchfaceLoader.item : watchfaceLoader.item
+            property bool forbidTop: activeFace !== null && activeFace.forbidTop === true
+            property bool forbidBottom: activeFace !== null && activeFace.forbidBottom === true
+            property bool forbidLeft: activeFace !== null && activeFace.forbidLeft === true
+            property bool forbidRight: activeFace !== null && activeFace.forbidRight === true
+            onForbidTopChanged: grid.changeAllowedDirections()
+            onForbidBottomChanged: grid.changeAllowedDirections()
+            onForbidLeftChanged: grid.changeAllowedDirections()
+            onForbidRightChanged: grid.changeAllowedDirections()
             Loader {
                 id: nightstandWatchfaceLoader
                 opacity: nightstandWatchfaceActive ? 1.0 : 0.0
