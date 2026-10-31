@@ -56,7 +56,9 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
   - `/usr/local/libexec/sonic/launcher`, from `sonic/watch/launcher`;
   - a systemd user drop-in that starts that wrapper,
     `/etc/systemd/user/asteroid-launcher.service.d/sonic.conf`, from
-    `sonic/watch/sonic.conf`.
+    `sonic/watch/sonic.conf`;
+  - the icons in `sonic/icons/`, into `/usr/share/icons/asteroid/sonic/`
+    (see [Icons](#icons)).
 - The wrapper runs the fork's build. After 3 starts within 2 minutes, which
   means a crash loop, it starts the stock launcher instead, until the next
   deploy or reboot. systemd would give up after 5 starts in 10 s and leave the
@@ -72,3 +74,20 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
 To uninstall completely:
 1. Run `sonic/deploy.sh --stock`.
 2. Delete `/usr/local/lib/sonic-launcher/` and `/usr/local/libexec/sonic/launcher`.
+3. Once the Settings fork is uninstalled too, delete
+   `/usr/share/icons/asteroid/sonic/`.
+
+## Icons
+
+AsteroidOS's `Icon` draws `/usr/share/icons/asteroid/<name>.svg` in a single
+colour, so an icon is a monochrome SVG in that directory. The icons that the
+stock theme (package asteroid-icons-ion) lacks are in `sonic/icons/`.
+`deploy.sh` installs them into `/usr/share/icons/asteroid/sonic/`, and QML
+names them `sonic/<name>`. `--stock` leaves them there; nothing stock uses them.
+
+| Icon | Shows | Drawn from |
+|---|---|---|
+| `ios-globe-off` | Quick panel: no internet | `ios-globe-outline`, crossed by the slash of the `ios-*-off` icons. The globe's strokes are cut 25 px either side of the slash, as in `ios-notifications-off`. |
+
+The Settings fork, usr-ein/asteroid-settings, ships the same files and installs
+them in the same place. Keep both copies identical.

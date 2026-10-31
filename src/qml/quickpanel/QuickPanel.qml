@@ -40,7 +40,6 @@ import Nemo.Configuration 1.0
 import Nemo.Mce 1.0
 import Nemo.DBus 2.0
 import Nemo.Ngf 1.0
-import Connman 0.2
 
 Item {
     id: rootitem
@@ -146,10 +145,7 @@ Item {
         volume: 0.8
     }
 
-    NetworkTechnology {
-        id: wifiStatus
-        path: "/net/connman/technology/wifi"
-    }
+    NetworkMode { id: networkMode }
 
     states: [
         State {
@@ -617,15 +613,21 @@ Item {
 
     Component {
         id: wifiToggleComponent
+        // Cycles the network mode: Wi-Fi, then the phone's hotspot over
+        // Bluetooth, then no internet at all. The hotspot is skipped when
+        // connman has none. A solid icon means connected.
         QuickPanelToggle {
-            icon: wifiStatus.connected ? "ios-wifi" : "ios-wifi-outline"
+            readonly property string mode: networkMode.mode
 
+            icon: mode === "wifi" ? (networkMode.wifi.connected ? "ios-wifi" : "ios-wifi-outline") :
+                  mode === "hotspot" ? (networkMode.hotspot.connected ? "ios-link" : "ios-link-outline") :
+                  "sonic/ios-globe-off"
+            tint: mode === "wifi" ? "#2196f3" :
+                  mode === "hotspot" ? "#4caf50" : "#222222"
             checkable: true
-            checked: wifiStatus.powered
+            checked: mode !== "none"
 
-            onClicked: {
-                wifiStatus.powered = !checked
-            }
+            onClicked: networkMode.setMode(networkMode.nextMode())
         }
     }
 

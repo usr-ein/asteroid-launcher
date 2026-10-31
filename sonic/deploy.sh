@@ -10,6 +10,8 @@
 # (sonic/watch/launcher), which runs the fork's build from
 # /usr/local/lib/sonic-launcher/. After 3 starts within 2 minutes, it falls
 # back to the stock launcher until the next deploy or reboot.
+# Icons the stock theme lacks (sonic/icons/) go to
+# /usr/share/icons/asteroid/sonic/; --stock leaves them, unused.
 # Restarting the launcher closes any open app on the watch.
 set -euo pipefail
 
@@ -66,11 +68,12 @@ case "${1:-}" in
 	file "$bin" | grep -q 'ELF 32-bit LSB.*ARM' || { echo "$bin is not a 32-bit ARM binary" >&2; exit 1; }
 	# The wakelock keeps the watch from suspending mid-copy; restart releases it.
 	ssh "$watch" "echo 'sonic_deploy $wakelock_ns' > /sys/power/wake_lock; mkdir -p /tmp/sonic-launcher"
-	scp -q "$bin" "$here/watch/launcher" "$here/watch/sonic.conf" "$watch:/tmp/sonic-launcher/"
+	scp -q -r "$bin" "$here/watch/launcher" "$here/watch/sonic.conf" "$here/icons" "$watch:/tmp/sonic-launcher/"
 	ssh "$watch" "set -e
 		cd /tmp/sonic-launcher
 		install -D -m 755 launcher /usr/local/libexec/sonic/launcher
 		install -D -m 644 sonic.conf /etc/systemd/user/asteroid-launcher.service.d/sonic.conf
+		for f in icons/*.svg; do install -D -m 644 \$f /usr/share/icons/asteroid/sonic/\${f#icons/}; done
 		d=/usr/local/lib/sonic-launcher
 		mkdir -p \$d
 		[ -f \$d/asteroid-launcher ] && cp -p \$d/asteroid-launcher \$d/asteroid-launcher.prev
