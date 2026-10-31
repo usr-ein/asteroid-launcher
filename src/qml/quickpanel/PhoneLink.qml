@@ -30,22 +30,20 @@
 import QtQuick 2.9
 import Nemo.DBus 2.0
 
-// The phone's Bluetooth links, from BlueZ on the system bus.
-// - The phone is the device behind connman's hotspot service, whose name is
-//   bluetooth_<adapter>_<device>; without that service, the first paired
-//   device whose icon is "phone".
-// - le: whether the phone's LE link is up, as far as BlueZ shows it.
-//   Device1.Connected can't tell, as it stays true while either the LE or
-//   the classic link is up. Two signs count:
-//   - org.bluez.Battery1 on the device. BlueZ adds it once the LE link is up
-//     and battery notifications are on, and removes it when the LE link
-//     drops. With some pairings the notifications can't be enabled, and then
-//     it never appears.
-//   - ServicesResolved while connected. BlueZ clears it when either link
-//     drops, and sets it again once services resolve. So it misses an LE link
-//     that outlived a classic one, and can read true after a classic-only
-//     reconnect.
-// - connected: whether any link to the phone is up.
+// The phone's links.
+// - le: whether the phone's LE link is up, as ioslink publishes it on the
+//   session bus (org.sonicscrewdriver.ioslink.Phone, Connected). BlueZ alone
+//   can't tell for a dual-mode phone. Battery1 may never appear for a bond,
+//   and Device1.Connected and ServicesResolved follow either link. ioslink
+//   uses Battery1 when it is there, and otherwise checks the link with a
+//   GATT read every 30 s. leKnown is false while ioslink isn't running; le is
+//   false then.
+// - connected: whether any link to the phone is up, from BlueZ's
+//   Device1.Connected on the system bus.
+// - path: the phone's device object in BlueZ. It is the device behind
+//   connman's hotspot service, whose name is bluetooth_<adapter>_<device>.
+//   Without that service, it is the first paired device whose icon is
+//   "phone"; with none, it is "".
 //
 // The launcher's quick panel and the Settings app share this file. Keep the
 // copies in usr-ein/asteroid-launcher (src/qml/quickpanel/PhoneLink.qml)
@@ -59,11 +57,10 @@ Item {
     // connman's hotspot service, to find the phone by its address.
     property string hotspotServicePath: ""
     readonly property string adapterPath: "/org/bluez/hci0"
-    // The phone's device object, or "" when no phone is paired.
     property string path: ""
-    property bool battery: false
+    readonly property bool leKnown: ioslinkPhone.status === DBusInterface.Available
+    readonly property bool le: leKnown && ioslinkPhone.connected
     readonly property bool connected: path !== "" && device.connected
-    readonly property bool le: battery || (connected && device.servicesResolved)
     readonly property bool adapterPowered: adapter.powered
 
     function refresh() {
@@ -81,9 +78,7 @@ Item {
                 if (firstPhone === "" && properties.Icon === "phone")
                     firstPhone = objectPath
             }
-            var found = byAddress !== "" ? byAddress : firstPhone
-            phoneLink.path = found
-            phoneLink.battery = found !== "" && objects[found]["org.bluez.Battery1"] !== undefined
+            phoneLink.path = byAddress !== "" ? byAddress : firstPhone
         }, function (error, message) {
             console.warn("PhoneLink: BlueZ GetManagedObjects failed: " + message)
         })
@@ -91,6 +86,18 @@ Item {
 
     onHotspotServicePathChanged: refresh()
     Component.onCompleted: refresh()
+
+    // ioslink's view of the phone's LE link.
+    DBusInterface {
+        id: ioslinkPhone
+        bus: DBus.SessionBus
+        service: "org.sonicscrewdriver.ioslink"
+        path: "/org/sonicscrewdriver/ioslink"
+        iface: "org.sonicscrewdriver.ioslink.Phone"
+        watchServiceStatus: true
+        propertiesEnabled: true
+        property bool connected: false
+    }
 
     DBusInterface {
         id: adapter
@@ -110,9 +117,10 @@ Item {
         iface: "org.bluez.Device1"
         propertiesEnabled: true
         property bool connected: false
-        property bool servicesResolved: false
     }
 
+    // Devices come and go as they are paired or removed; GATT objects, which
+    // come and go with the LE link, don't matter here.
     DBusInterface {
         id: bluez
         bus: DBus.SystemBus
@@ -121,7 +129,6 @@ Item {
         iface: "org.freedesktop.DBus.ObjectManager"
         signalsEnabled: true
 
-        // GATT objects come and go with the LE link; only the devices matter.
         function interfacesAdded(objectPath, interfaces) { changed(objectPath) }
         function interfacesRemoved(objectPath, interfaces) { changed(objectPath) }
         function changed(objectPath) {
