@@ -146,6 +146,10 @@ Item {
     }
 
     NetworkMode { id: networkMode }
+    PhoneLink {
+        id: phoneLink
+        hotspotServicePath: networkMode.hotspot.path
+    }
 
     states: [
         State {
@@ -633,20 +637,21 @@ Item {
 
     Component {
         id: bluetoothToggleComponent
+        // Switches classic Bluetooth on or off, through ioslink: the phone's
+        // hotspot and covers use it. Bluetooth LE carries notifications and
+        // music control, so it always stays on, and this never powers the
+        // adapter off. The icon shows a link while the phone's LE link is up.
         QuickPanelToggle {
             id: bluetoothToggle
 
-            icon: btStatus.connected ? "ios-bluetooth-connected" : "ios-bluetooth"
+            readonly property bool classic: networkMode.classicBluetooth
 
+            icon: !classic ? "ios-bluetooth-outline" :
+                  phoneLink.le ? "ios-bluetooth-connected" : "ios-bluetooth"
             checkable: true
-            checked: btStatus.powered
-            BluetoothStatus {
-                id: btStatus
-            }
+            checked: classic
 
-            onClicked: {
-                btStatus.powered = !checked
-            }
+            onClicked: networkMode.setClassicBluetooth(!classic)
         }
     }
 
