@@ -18,6 +18,9 @@ watch=${SONIC_WATCH:-sonic-screwdriver}
 bin=$here/out/asteroid-launcher
 
 user_systemctl='systemctl --user -M ceres@'
+# Wakelocks time out after 5 minutes, so a deploy that dies midway can't keep
+# the watch awake.
+wakelock_ns=300000000000
 status='
 	pid=$('"$user_systemctl"' show -p MainPID --value asteroid-launcher)
 	exe=$(readlink /proc/$pid/exe 2>/dev/null || echo none)
@@ -30,7 +33,7 @@ status='
 # its start can fire one per stored notification at once. The speaker sink
 # stays muted until the launcher has settled; a wakelock keeps the watch awake.
 restart='
-	echo sonic_deploy > /sys/power/wake_lock
+	echo "sonic_deploy '"$wakelock_ns"'" > /sys/power/wake_lock
 	export PULSE_SERVER=unix:/run/user/1000/pulse/native PULSE_COOKIE=/home/ceres/.config/pulse/cookie
 	case "$(pactl get-sink-mute speaker 2>/dev/null)" in *yes*) was_muted=1 ;; *) was_muted=0 ;; esac
 	pactl set-sink-mute speaker 1 2>/dev/null || true
@@ -61,7 +64,8 @@ case "${1:-}" in
 "")
 	[ -f "$bin" ] || { echo "no build at $bin; run sonic/build.sh first" >&2; exit 1; }
 	file "$bin" | grep -q 'ELF 32-bit LSB.*ARM' || { echo "$bin is not a 32-bit ARM binary" >&2; exit 1; }
-	ssh "$watch" 'mkdir -p /tmp/sonic-launcher'
+	# The wakelock keeps the watch from suspending mid-copy; restart releases it.
+	ssh "$watch" "echo 'sonic_deploy $wakelock_ns' > /sys/power/wake_lock; mkdir -p /tmp/sonic-launcher"
 	scp -q "$bin" "$here/watch/launcher" "$here/watch/sonic.conf" "$watch:/tmp/sonic-launcher/"
 	ssh "$watch" "set -e
 		cd /tmp/sonic-launcher
