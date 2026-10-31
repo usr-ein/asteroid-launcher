@@ -1,0 +1,27 @@
+#!/bin/sh
+# Sonic Screwdriver: start the fork's asteroid-launcher, or the stock one.
+# Installed by sonic/deploy.sh as /usr/local/libexec/sonic/launcher, and run by
+# the asteroid-launcher.service drop-in sonic.conf in place of
+# /usr/bin/asteroid-launcher.
+#
+# After 3 starts within 2 minutes (a crash loop), it starts the stock launcher
+# until the next deploy or reboot. systemd's own limit (5 starts in 10 s) would
+# leave the watch without any launcher, so this switch has to come first.
+ours=/usr/local/lib/sonic-launcher/asteroid-launcher
+stock=/usr/bin/asteroid-launcher
+state=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+starts=$state/sonic-launcher-starts
+fallback=$state/sonic-launcher-fallback
+
+now=$(cut -d. -f1 /proc/uptime)
+{ awk -v now="$now" '$1 > now - 120' "$starts" 2>/dev/null; echo "$now"; } > "$starts.new"
+mv "$starts.new" "$starts"
+if [ "$(wc -l < "$starts")" -gt 3 ] && [ ! -e "$fallback" ]; then
+	echo "sonic: the fork's launcher started 3 times in 2 minutes; using the stock launcher" >&2
+	: > "$fallback"
+fi
+
+if [ -x "$ours" ] && [ ! -e "$fallback" ]; then
+	exec "$ours" "$@"
+fi
+exec "$stock" "$@"
