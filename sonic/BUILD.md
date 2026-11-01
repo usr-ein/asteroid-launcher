@@ -89,6 +89,27 @@ To uninstall completely:
   so `deploy.sh --stock` takes it back too. The other styles stay the files
   in `/usr/share/asteroid-launcher/applauncher/`.
 
+### Logos and the dark theme
+
+- **Logos:** `sonic/icons/<desktop file ID>.svg`, one per app, compiled into
+  the binary: Check-in, Alarm clock, Heart rate, Timer, Stopwatch, Weather,
+  Flashlight and Diamonds. They are original drawings in one style: a disc of
+  the app's colour, darkened, with a flat, rounded, full-colour symbol on it.
+  Weather's disc is a blue sky, Flashlight's a dark grey. Qt draws them with
+  its SVG Tiny renderer, so they use no clip paths, masks, filters or CSS.
+- **The list:** each page shows the app's logo, the size of the stock icon
+  circle, with its name under it, smaller and in sentence case ("Alarm
+  clock"). `AppListModel`'s `logo` role is the logo's `qrc:` URL, or empty.
+  An app without a logo gets the stock drawing, its icon on a circle, in the
+  theme's dark grey.
+- **Adding a logo:** put the SVG in `sonic/icons/` and list it in
+  `src/resources-qml.qrc`.
+- **Black panels:** the wallpaper is the watch face's alone. MainScreen's
+  darkener is opaque behind every other panel, so the app list, the Today
+  screen, the quick panel and the notifications are black. The wallpaper
+  fades out as a panel comes in. The quick panel's unchecked toggles keep a
+  dark grey circle, which shows on black.
+
 ### Hiding apps
 
 ```sh
@@ -115,6 +136,32 @@ behind the watch face's cover, and the agenda on the Today screen.
   `/usr/local/share/applications` says `NoDisplay=true` or `Hidden=true`.
 - The stock launcher, after `deploy.sh --stock`, shows every app again.
 
+## The Today screen
+
+The screen right of the watch face is a timeline of the day, as the approved
+mockup draws it (`src/qml/today/`).
+- **The timeline:** 00:00 to 24:00, 76 px an hour, scrolling up and down.
+  Hour labels on the left, faint hour lines across, and a red line at now
+  with its time.
+- **Events,** from the same AgendaModel as before:
+  - each timed event is a block from its start to its end, in its calendar's
+    colour, the notebook's colour that the iPhone sync sets;
+  - events that overlap share the width;
+  - a block shows its title, on two lines at most, above its time. A longer
+    title rolls up, slowly, with a pause at each end;
+  - a block shorter than 56 px, about 45 minutes, is one line with the time
+    first, and a longer title slides sideways;
+  - all-day events are chips under the date and the weather, two and then
+    "+n", in a band that stays.
+- **While it scrolls,** a bubble on the right edge shows the time at the
+  middle of the screen, rounded to five minutes, with a dashed line across.
+  It fades out a second after the scrolling stops.
+- **It centres on now** whenever it comes into view.
+- **Battery:** the minute clock runs only while the screen shows, and a
+  title moves only while the screen shows and its block is in view.
+- `timeline.js` lays the day out in the mockup's pixels, and `Today.qml`
+  scales them to the screen. `TodayEvent.qml` draws one block.
+
 ## Testing off the watch
 
 ```sh
@@ -127,12 +174,24 @@ in the launcher, in a 454 × 454 view: the watch's screen.
 - **What runs it:** the SDK's Qt, qml-asteroid and Nemo plugins, the watch's
   exact builds, and the watch's own liblipstick. They run in a 32-bit ARM
   Alpine container, which Docker runs through QEMU, with Qt Quick's software
-  renderer. Shader effects, such as the stock list's drop shadow, don't show
-  there.
+  renderer.
+- **Another worktree** of the fork can build in Docker volumes of its own:
+  `SONIC_BUILD_VOLUME=<name> sonic/test/test.sh`, also for `sonic/build.sh`.
 - **What it checks:** the scenes check what they show, then save screenshots
-  and contact sheets to `sonic/out/test/shots/`. `applist` checks the order,
-  the hidden apps with `sonic/watch/hide-apps` itself, and that lipstick alone
-  honours no override.
+  and contact sheets to `sonic/out/test/shots/`.
+  - `applist` checks the order, the hidden apps with `sonic/watch/hide-apps`
+    itself, and that lipstick alone honours no override. It reads each logo
+    back from the screenshots by its colours, and checks the names.
+  - `quickpanel` draws the quick panel on black, with the system services it
+    reads stood in for by `sonic/test/stubs/`.
+  - `today` runs the Today screen with the SDK's real AgendaModel over mkcal.
+    `seed-calendar.cpp` fills four coloured notebooks with the mockup's
+    sample days, invented, and changes them under the open screen.
+  - `preview` puts the others' screenshots on one sheet,
+    `preview-dark-theme.png`.
+- **The software renderer** draws no shader effects: the quick panel's
+  battery bar, which an opacity mask shapes, doesn't show in the screenshots.
+  It does on the watch.
 - **What it needs from the watch:** two libraries that lipstick needs and the
   SDK lacks, `libmce-qt5` and `libngf-qt5`, and the watch's Noto Sans for the
   screenshots. They are copied once over SSH and checked against the SHA-256

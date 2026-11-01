@@ -108,7 +108,12 @@ Item {
             return
         }
         var step = steps[stepIndex++]
-        step(function() { after(0, next) })
+        try {
+            step(function() { after(0, next) })
+        } catch (error) {
+            check(false, "step " + stepIndex + " threw: " + error)
+            after(0, next)
+        }
     }
 
     // The first frames first, then the timeline.

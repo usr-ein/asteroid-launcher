@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Stopwatch: a green stopwatch. Sonic Screwdriver's launcher icons, sonic/icons/. -->
+  <circle cx="128" cy="128" r="124" fill="#0a2a13"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#30d158" stroke-opacity="0.28" stroke-width="3"/>
+  <rect x="122" y="66" width="12" height="18" fill="#21a647"/>
+  <rect x="108" y="50" width="40" height="20" rx="8" fill="#30d158"/>
+  <g transform="rotate(45 178 90)"><rect x="170" y="74" width="16" height="22" rx="5" fill="#21a647"/></g>
+  <circle cx="128" cy="142" r="68" fill="#30d158"/>
+  <circle cx="128" cy="142" r="54" fill="#effcf2"/>
+  <path d="M128 142 L128 94 A48 48 0 0 1 169.6 118 Z" fill="#30d158" fill-opacity="0.3"/>
+  <path d="M128 96 L128 104 M174 142 L166 142 M128 188 L128 180 M82 142 L90 142" stroke="#21a647" stroke-width="6" stroke-linecap="round"/>
+  <path d="M128 142 L162 122" stroke="#21a647" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="128" cy="142" r="8" fill="#21a647"/>
+</svg>

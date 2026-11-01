@@ -21,6 +21,8 @@
         <file alias="Tutorial.qml">qml/firstrun/Tutorial.qml</file>
         <file alias="desktop.js">qml/misc/desktop.js</file>
         <file alias="weathericons.js">qml/today/weathericons.js</file>
+        <file alias="timeline.js">qml/today/timeline.js</file>
+        <file alias="TodayEvent.qml">qml/today/TodayEvent.qml</file>
         <file alias="compositor/WindowWrapperBase.qml">qml/compositor/WindowWrapperBase.qml</file>
         <file alias="compositor/CircleMaskShader.qml">qml/compositor/CircleMaskShader.qml</file>
         <file alias="system/ShutdownScreen.qml">qml/misc/ShutdownScreen.qml</file>
@@ -30,5 +32,15 @@
         <file alias="connectivity/BluetoothAgent.qml">qml/misc/BluetoothAgent.qml</file>
         <file alias="notifications/NotificationPreview.qml">qml/notifications/NotificationPreview.qml</file>
         <file alias="applauncher/000-default-horizontal.qml">applauncher/000-default-horizontal.qml</file>
+    </qresource>
+    <qresource prefix="/sonic/icons/">
+        <file alias="asteroid-alarmclock.svg">../sonic/icons/asteroid-alarmclock.svg</file>
+        <file alias="asteroid-diamonds.svg">../sonic/icons/asteroid-diamonds.svg</file>
+        <file alias="asteroid-flashlight.svg">../sonic/icons/asteroid-flashlight.svg</file>
+        <file alias="asteroid-hrm.svg">../sonic/icons/asteroid-hrm.svg</file>
+        <file alias="asteroid-stopwatch.svg">../sonic/icons/asteroid-stopwatch.svg</file>
+        <file alias="asteroid-timer.svg">../sonic/icons/asteroid-timer.svg</file>
+        <file alias="asteroid-weather.svg">../sonic/icons/asteroid-weather.svg</file>
+        <file alias="sonic-checkin.svg">../sonic/icons/sonic-checkin.svg</file>
     </qresource>
 </RCC>
