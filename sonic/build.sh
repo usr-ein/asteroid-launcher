@@ -85,11 +85,13 @@ fi
 
 log "building asteroid-launcher"
 mkdir -p "$here/out"
-# rcc stamps each resource with its file's time unless told otherwise: the
-# commit's time makes a build of a commit the same, byte for byte.
-epoch=$(git -C "$src" log -1 --format=%ct)
+# rcc stamps each compiled-in resource with its file's time, which a checkout
+# or an edit changes. A fixed time, with rcc run again on every build, makes
+# the binary depend on the sources alone: the same sources give the same
+# binary, byte for byte, incremental or clean.
+resource_time=1
 run -v "$sdk_volume:$sdk_dir:ro" -v "$build_volume:/build" -v "$src:/src:ro" -v "$stage:/stage:ro" -v "$here/out:/out" \
-	-e SOURCE_DATE_EPOCH="$epoch" -e QT_RCC_SOURCE_DATE_OVERRIDE="$epoch" \
+	-e SOURCE_DATE_EPOCH=$resource_time -e QT_RCC_SOURCE_DATE_OVERRIDE=$resource_time \
 	"$image" bash -ec '
 	. '"$sdk_dir"'/environment-setup-armv7vehf-neon-oe-linux-gnueabi
 	# liblipstick needs libraries the SDK lacks; they all exist on the watch.
@@ -98,6 +100,7 @@ run -v "$sdk_volume:$sdk_dir:ro" -v "$build_volume:/build" -v "$src:/src:ro" -v 
 		-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
 		-DLipstick_INCLUDE_DIRS="/stage/include/lipstick-qt5;/stage/include" \
 		-DLipstick_LIBRARIES=/stage/lib/liblipstick-qt5.so.1 >/dev/null
+	find /build -name "qrc_*.cpp" -delete
 	cmake --build /build -j"$(nproc)"
 	$OBJCOPY --only-keep-debug /build/src/asteroid-launcher /out/asteroid-launcher.debug
 	$STRIP -o /out/asteroid-launcher /build/src/asteroid-launcher

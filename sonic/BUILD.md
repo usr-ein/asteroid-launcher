@@ -15,8 +15,9 @@ sonic/build.sh --clean    # from an empty build directory
 ```
 
 The output is `sonic/out/asteroid-launcher`, stripped, with its debug symbols in
-`sonic/out/asteroid-launcher.debug`. A build is reproducible: the same commit
-gives the same binary, byte for byte, so its SHA-256 names it.
+`sonic/out/asteroid-launcher.debug`. A build is reproducible: the same
+sources give the same binary, byte for byte, incremental or clean, so its
+SHA-256 names it.
 
 The build runs in Docker with AsteroidOS's 2.1 SDK.
 - The SDK's Qt 5.15.16, mlite, timed and libngf are the exact builds on the
