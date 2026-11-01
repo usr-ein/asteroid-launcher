@@ -190,7 +190,8 @@ Item {
         onTriggered: Lipstick.compositor.setAmbientUpdatesEnabled(false)
     }
 
-    LauncherModel {
+    // Sonic's order, without the hidden apps (AppList.qml).
+    AppList {
         id: launcherModel
     }
 
@@ -246,6 +247,12 @@ Item {
         key: "/desktop/asteroid/applauncher"
         defaultValue: "file:///usr/share/asteroid-launcher/applauncher/000-default-horizontal.qml"
     }
+
+    // The default horizontal app list is the fork's own, compiled in. The
+    // other styles are the installed files.
+    readonly property string appLauncherUrl:
+        appLauncherSource.value === "file:///usr/share/asteroid-launcher/applauncher/000-default-horizontal.qml"
+            ? "qrc:/qml/applauncher/000-default-horizontal.qml" : appLauncherSource.value
 
     ConfigurationValue {
         id: watchfaceNightstandSource
@@ -386,7 +393,7 @@ Item {
             property bool forbidBottom: false
             property bool forbidLeft: false
             property bool forbidRight: false
-            source: appLauncherSource.value
+            source: appLauncherUrl
             onStatusChanged: {
                 if (appLauncher.status == Loader.Ready) {
                     Desktop.appLauncher = appLauncher.item
