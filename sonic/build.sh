@@ -85,7 +85,11 @@ fi
 
 log "building asteroid-launcher"
 mkdir -p "$here/out"
+# rcc stamps each resource with its file's time unless told otherwise: the
+# commit's time makes a build of a commit the same, byte for byte.
+epoch=$(git -C "$src" log -1 --format=%ct)
 run -v "$sdk_volume:$sdk_dir:ro" -v "$build_volume:/build" -v "$src:/src:ro" -v "$stage:/stage:ro" -v "$here/out:/out" \
+	-e SOURCE_DATE_EPOCH="$epoch" -e QT_RCC_SOURCE_DATE_OVERRIDE="$epoch" \
 	"$image" bash -ec '
 	. '"$sdk_dir"'/environment-setup-armv7vehf-neon-oe-linux-gnueabi
 	# liblipstick needs libraries the SDK lacks; they all exist on the watch.
