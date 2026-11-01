@@ -18,6 +18,7 @@ add_executable(launcher-test
 	harness.cpp
 	${launcher}/applauncher.cpp
 	${launcher}/applistmodel.cpp
+	${launcher}/buttondoubleclick.cpp
 	${launcher}/applauncherbackground.cpp
 	${launcher}/resources-qml.qrc)
 target_include_directories(launcher-test PRIVATE ${launcher} ${Lipstick_INCLUDE_DIRS})

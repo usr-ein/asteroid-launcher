@@ -2,8 +2,9 @@
 # Sonic Screwdriver: the launcher's QML off the watch, under emulation.
 #
 #   sonic/test/test.sh             every scene
-#   sonic/test/test.sh <scene>...  these scenes: applist, quickpanel, today, then
-#                                  preview, a sheet of the others' screenshots
+#   sonic/test/test.sh <scene>...  these scenes: applist, quickpanel, today,
+#                                  button, then preview, a sheet of the
+#                                  others' screenshots
 #
 # Each scene (sonic/test/<scene>.qml) runs the fork's own QML, compiled in as
 # in the launcher, in a 454 × 454 view: the watch's screen. It uses the SDK's
@@ -29,7 +30,7 @@ build_volume=${SONIC_BUILD_VOLUME:-sonic-asteroid-launcher-build}-test
 sdk_dir=/opt/asteroid-sdk
 stage=$cache/launcher-stage
 fonts=$cache/watch-fonts
-all_scenes="applist quickpanel today preview"
+all_scenes="applist quickpanel today button preview"
 
 # <local name> <path on the watch> <sha256>
 watch_libs="

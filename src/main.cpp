@@ -48,6 +48,7 @@
 #include "notificationsnoozer.h"
 #include "applauncher.h"
 #include "applistmodel.h"
+#include "buttondoubleclick.h"
 
 int main(int argc, char **argv)
 {
@@ -92,6 +93,7 @@ int main(int argc, char **argv)
     qmlRegisterType<AppListModel>("org.asteroid.launcher", 1, 0, "AppListModel");
     // For AppListModel's sourceModel, set from QML.
     qmlRegisterAnonymousType<QAbstractItemModel>("org.asteroid.launcher", 1);
+    qmlRegisterType<ButtonDoubleClick>("org.asteroid.launcher", 1, 0, "ButtonDoubleClick");
     app.setQmlPath("qrc:/qml/MainScreen.qml");
 
     // Give these to the environment inside the lipstick homescreen

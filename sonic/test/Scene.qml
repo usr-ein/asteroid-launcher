@@ -58,10 +58,18 @@ Item {
         return result
     }
 
+    // A callback that throws fails its step, and the timeline goes on.
     Timer {
         id: delay
         property var callback
-        onTriggered: callback()
+        onTriggered: {
+            try {
+                callback()
+            } catch (error) {
+                check(false, "step " + stepIndex + " threw: " + error)
+                after(0, next)
+            }
+        }
     }
 
     function after(ms, callback) {

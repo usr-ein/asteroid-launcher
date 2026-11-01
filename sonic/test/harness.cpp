@@ -10,7 +10,9 @@
  */
 
 #include <QColor>
+#include <QFile>
 #include <QFont>
+#include <QHash>
 #include <QGuiApplication>
 #include <QImage>
 #include <QProcess>
@@ -21,12 +23,16 @@
 #include <QVariantMap>
 
 #include <cstdio>
+#include <fcntl.h>
+#include <linux/input.h>
+#include <unistd.h>
 
 #include <launchermodel.h>
 
 #include "applauncher.h"
 #include "applauncherbackground.h"
 #include "applistmodel.h"
+#include "buttondoubleclick.h"
 
 class TestTools : public QObject
 {
@@ -68,6 +74,36 @@ public:
         return area.isEmpty() ? 0 : double(matching) / (area.width() * area.height());
     }
 
+    // Writes input events, as the kernel's evdev does, to a file such as a
+    // FIFO that ButtonDoubleClick reads: each [msec, type, code, value],
+    // msec the event's time. The file stays open between calls, so that a
+    // FIFO's reader never sees its end.
+    Q_INVOKABLE bool inputEvents(const QString &path, const QVariantList &events)
+    {
+        int fd = m_inputs.value(path, -1);
+        if (fd < 0) {
+            fd = ::open(QFile::encodeName(path).constData(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+            if (fd < 0)
+                return false;
+            m_inputs.insert(path, fd);
+        }
+        for (const QVariant &value : events) {
+            const QVariantList fields = value.toList();
+            if (fields.size() != 4)
+                return false;
+            struct input_event event = {};
+            const qint64 msec = fields.at(0).toLongLong();
+            event.input_event_sec = msec / 1000;
+            event.input_event_usec = (msec % 1000) * 1000;
+            event.type = fields.at(1).toInt();
+            event.code = fields.at(2).toInt();
+            event.value = fields.at(3).toInt();
+            if (::write(fd, &event, sizeof(event)) != sizeof(event))
+                return false;
+        }
+        return true;
+    }
+
     Q_INVOKABLE void log(const QString &line)
     {
         std::printf("%s\n", qPrintable(line));
@@ -78,6 +114,9 @@ public:
     {
         QCoreApplication::exit(status);
     }
+
+private:
+    QHash<QString, int> m_inputs;
 };
 
 int main(int argc, char **argv)
@@ -98,6 +137,7 @@ int main(int argc, char **argv)
     qmlRegisterType<AppLauncher>("org.asteroid.launcher", 1, 0, "AppLauncher");
     qmlRegisterType<AppListModel>("org.asteroid.launcher", 1, 0, "AppListModel");
     qmlRegisterAnonymousType<QAbstractItemModel>("org.asteroid.launcher", 1);
+    qmlRegisterType<ButtonDoubleClick>("org.asteroid.launcher", 1, 0, "ButtonDoubleClick");
     // lipstick's QML plugin isn't in the SDK; its library is the watch's own.
     qmlRegisterType<LauncherModel>("org.nemomobile.lipstick", 0, 1, "LauncherModel");
 

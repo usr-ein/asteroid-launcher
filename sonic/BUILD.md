@@ -162,6 +162,29 @@ mockup draws it (`src/qml/today/`).
 - `timeline.js` lays the day out in the mockup's pixels, and `Today.qml`
   scales them to the screen. `TodayEvent.qml` draws one block.
 
+## The bottom button: double-click for the flashlight
+
+Two presses of the bottom button within 400 ms toggle the flashlight, from
+anywhere, with the display off too. A single press, and the top button, do
+what they did.
+- **The button:** on this watch, the PMIC's RESIN key, which sends
+  `KEY_VOLUMEDOWN` (114) from the same input device as the power key,
+  `qpnp_pon`. mce never grabs that device, as it also sends `KEY_POWER`.
+- **Read from the device:** `ButtonDoubleClick` (`src/buttondoubleclick.cpp`)
+  reads `/dev/input/event*` itself, the devices that can send the key, as
+  Qt's key events stop while the display is off: lipstick hides its window
+  then. It only reads and never grabs, and it times the presses by the
+  kernel's times of the events, so presses that wake the watch still count.
+- **The flashlight:** asteroid-flashlight, as the quick panel's button opens
+  it (`src/qml/compositor/Flashlight.qml`).
+  - On: the display on first when it's off, through mce's
+    `req_display_state_on`, then the app, which goes to full brightness.
+  - Off: the app closes, as a swipe closes it, and restores the brightness.
+  - It opens over the app on the screen without closing it, unlike other
+    apps, and turned off by the button, it gives the screen back to that app.
+  - Its window is the one whose process's command line names
+    asteroid-flashlight, however it was opened.
+
 ## Testing off the watch
 
 ```sh
@@ -187,6 +210,9 @@ in the launcher, in a 454 × 454 view: the watch's screen.
   - `today` runs the Today screen with the SDK's real AgendaModel over mkcal.
     `seed-calendar.cpp` fills four coloured notebooks with the mockup's
     sample days, invented, and changes them under the open screen.
+  - `button` feeds invented input events to `ButtonDoubleClick` through a
+    FIFO, and drives `Flashlight.qml` with a stand-in for the compositor's
+    windows: from the home, over an app, with the display off, and more.
   - `preview` puts the others' screenshots on one sheet,
     `preview-dark-theme.png`.
 - **The software renderer** draws no shader effects: the quick panel's
