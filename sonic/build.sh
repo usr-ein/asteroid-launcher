@@ -27,7 +27,8 @@ lipstick_lib_sha256=26e5f0291b34c977ffdfbe60c9d5265fde828e2530dd52bea3d67d82fe20
 
 image=sonic-asteroid-launcher-sdk:2.1
 sdk_volume=sonic-asteroid-sdk-2.1
-build_volume=sonic-asteroid-launcher-build
+# Another worktree of the fork can build in a volume of its own.
+build_volume=${SONIC_BUILD_VOLUME:-sonic-asteroid-launcher-build}
 
 log() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 run() { docker run --rm --platform linux/amd64 "$@"; }
