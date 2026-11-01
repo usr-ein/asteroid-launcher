@@ -8,6 +8,7 @@
         <file alias="compositor.qml">qml/compositor/compositor.qml</file>
         <file alias="Splash.qml">qml/misc/Splash.qml</file>
         <file alias="PanelsGrid.qml">qml/misc/PanelsGrid.qml</file>
+        <file alias="AppList.qml">qml/misc/AppList.qml</file>
         <file alias="NotificationActions.qml">qml/notifications/NotificationActions.qml</file>
         <file alias="NotificationButton.qml">qml/notifications/NotificationButton.qml</file>
         <file alias="NotificationIndicator.qml">qml/notifications/NotificationIndicator.qml</file>
@@ -28,5 +29,6 @@
         <file alias="connectivity/ConnectionSelector.qml">qml/misc/ConnectionSelector.qml</file>
         <file alias="connectivity/BluetoothAgent.qml">qml/misc/BluetoothAgent.qml</file>
         <file alias="notifications/NotificationPreview.qml">qml/notifications/NotificationPreview.qml</file>
+        <file alias="applauncher/000-default-horizontal.qml">applauncher/000-default-horizontal.qml</file>
     </qresource>
 </RCC>

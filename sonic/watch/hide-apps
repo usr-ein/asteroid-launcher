@@ -1,0 +1,149 @@
+#!/bin/sh
+# Sonic Screwdriver: hide apps from the watch's app list without uninstalling
+# them. sonic/hide-apps.sh runs this on the watch over SSH, as root.
+#
+#   hide-apps                  hide Music, Calculator, Agenda and Settings
+#   hide-apps <id>...          hide these apps, by desktop file ID (asteroid-music)
+#   hide-apps --show <id>...   show these apps again
+#   hide-apps --undo           show again every app that this script hid
+#   hide-apps --status         list the hidden apps
+#
+# An app is hidden by an override, /usr/local/share/applications/<id>.desktop
+# with NoDisplay=true. The fork's launcher (AppListModel) honours it at once,
+# without a restart; the stock launcher ignores it. The app's package and its
+# own .desktop file stay untouched, and deleting the override shows the app
+# again. Overrides that this script didn't write are left alone.
+set -eu
+
+apps=/usr/share/applications
+overrides=/usr/local/share/applications
+user_overrides=/home/ceres/.local/share/applications
+mark='# Written by sonic/hide-apps.sh.'
+default='asteroid-music asteroid-calculator asteroid-calendar asteroid-settings'
+
+usage() {
+	echo "usage: hide-apps [<id>... | --show <id>... | --undo | --status]" >&2
+	exit 64
+}
+
+valid() {
+	case $1 in
+	'' | .* | *[!A-Za-z0-9._-]*)
+		echo "hide-apps: not a desktop file ID: $1" >&2
+		return 1
+		;;
+	esac
+}
+
+# Whether the override of an app is this script's.
+ours() {
+	[ -f "$overrides/$1.desktop" ] && grep -qxF "$mark" "$overrides/$1.desktop"
+}
+
+hide() {
+	valid "$1" || return 1
+	src=$apps/$1.desktop
+	if [ ! -f "$src" ]; then
+		echo "hide-apps: no app $1 ($src)" >&2
+		return 1
+	fi
+	if [ -f "$overrides/$1.desktop" ] && ! ours "$1"; then
+		echo "hide-apps: $overrides/$1.desktop isn't this script's; left alone" >&2
+		return 1
+	fi
+	name=$(sed -n 's/^Name=//p' "$src" | head -n 1)
+	exec=$(sed -n 's/^Exec=//p' "$src" | head -n 1)
+	mkdir -p "$overrides"
+	# Written aside, then renamed: the launcher only ever reads a whole file.
+	tmp=$overrides/.$1.desktop.new
+	cat > "$tmp" <<-END
+		$mark
+		# It hides $1 from the app list of Sonic Screwdriver's launcher.
+		# Delete it, or run sonic/hide-apps.sh --show $1, to show the app again.
+		[Desktop Entry]
+		Type=Application
+		Name=$name
+		Exec=$exec
+		NoDisplay=true
+	END
+	chmod 644 "$tmp"
+	mv -f "$tmp" "$overrides/$1.desktop"
+	echo "hidden: $1 ($name)"
+}
+
+show() {
+	valid "$1" || return 1
+	if ours "$1"; then
+		rm -f "$overrides/$1.desktop"
+		echo "shown: $1"
+	elif [ -f "$overrides/$1.desktop" ]; then
+		echo "hide-apps: $overrides/$1.desktop isn't this script's; left alone" >&2
+		return 1
+	else
+		echo "not hidden by this script: $1"
+	fi
+}
+
+undo() {
+	for f in "$overrides"/*.desktop; do
+		[ -f "$f" ] || continue
+		id=$(basename "$f" .desktop)
+		if ours "$id"; then
+			rm -f "$f"
+			echo "shown: $id"
+		fi
+	done
+	rmdir "$overrides" 2>/dev/null || true
+}
+
+status() {
+	found=0
+	for dir in "$overrides" "$user_overrides"; do
+		for f in "$dir"/*.desktop; do
+			[ -f "$f" ] || continue
+			grep -qE '^(NoDisplay|Hidden)=true' "$f" || continue
+			id=$(basename "$f" .desktop)
+			if [ "$dir" = "$overrides" ] && ours "$id"; then
+				echo "hidden: $id"
+			else
+				echo "hidden: $id (by $f, not this script's)"
+			fi
+			found=1
+		done
+	done
+	[ $found = 1 ] || echo "no app is hidden"
+	# The stock launcher ignores the overrides.
+	command -v systemctl > /dev/null || return 0
+	pid=$(systemctl --user -M ceres@ show -p MainPID --value asteroid-launcher 2> /dev/null || true)
+	case $(readlink "/proc/${pid:-0}/exe" 2> /dev/null || true) in
+	/usr/local/lib/sonic-launcher/*) ;;
+	*) echo "note: the running launcher isn't the fork's, and the stock one shows every app (sonic/deploy.sh)" ;;
+	esac
+}
+
+rc=0
+case ${1:-} in
+--status)
+	[ $# = 1 ] || usage
+	status
+	;;
+--undo)
+	[ $# = 1 ] || usage
+	undo
+	;;
+--show)
+	shift
+	[ $# -gt 0 ] || usage
+	for id in "$@"; do show "$id" || rc=1; done
+	;;
+-*)
+	usage
+	;;
+'')
+	for id in $default; do hide "$id" || rc=1; done
+	;;
+*)
+	for id in "$@"; do hide "$id" || rc=1; done
+	;;
+esac
+exit $rc

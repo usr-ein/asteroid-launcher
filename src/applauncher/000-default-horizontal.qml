@@ -56,17 +56,32 @@ Item {
         property int currentPos: 0
 
         onCurrentPosChanged: {
+            if (grid.currentVerticalPos !== 1)
+                return
             rightIndicator.animate()
             leftIndicator.animate()
             topIndicator.animate()
             bottomIndicator.animate()
         }
 
+        // The list opens on its first app. Once it has been left for the
+        // watch face, by a swipe, an app closing or the display going off, it
+        // goes back to the start, out of sight. Coming back from a minimised
+        // app keeps the page.
+        Timer {
+            id: backToStart
+            interval: 400
+            onTriggered: appsListView.positionViewAtBeginning()
+        }
+
         Connections {
             target: grid
             function onCurrentVerticalPosChanged() {
                 if (grid.currentVerticalPos === 1) {
+                    backToStart.stop()
                     grid.changeAllowedDirections()
+                } else {
+                    backToStart.restart()
                 }
             }
         }
