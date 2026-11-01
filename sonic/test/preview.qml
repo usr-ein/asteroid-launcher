@@ -14,7 +14,7 @@ Scene {
         id: sheet
         x: desktop.width + 100
         columns: 4
-        title: "Sonic's dark theme: the app list, its own logos and names in sentence case, and the quick panel, on black"
+        title: "Sonic's dark theme: the app list, its own logos and names in sentence case, the quick panel and the Today screen, on black"
     }
 
     readonly property var pages: [
@@ -28,7 +28,8 @@ Scene {
         ["applist-hidden-08", "Diamonds, last"],
         ["applist-all-09", "An app without a logo"],
         ["quickpanel", "The quick panel"],
-        ["quickpanel-outdoors", "The bell on outdoors"]
+        ["quickpanel-outdoors", "The bell on outdoors"],
+        ["today-1342", "The Today screen"]
     ]
 
     steps: [

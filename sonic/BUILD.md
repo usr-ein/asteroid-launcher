@@ -136,6 +136,32 @@ behind the watch face's cover, and the agenda on the Today screen.
   `/usr/local/share/applications` says `NoDisplay=true` or `Hidden=true`.
 - The stock launcher, after `deploy.sh --stock`, shows every app again.
 
+## The Today screen
+
+The screen right of the watch face is a timeline of the day, as the approved
+mockup draws it (`src/qml/today/`).
+- **The timeline:** 00:00 to 24:00, 76 px an hour, scrolling up and down.
+  Hour labels on the left, faint hour lines across, and a red line at now
+  with its time.
+- **Events,** from the same AgendaModel as before:
+  - each timed event is a block from its start to its end, in its calendar's
+    colour, the notebook's colour that the iPhone sync sets;
+  - events that overlap share the width;
+  - a block shows its title, on two lines at most, above its time. A longer
+    title rolls up, slowly, with a pause at each end;
+  - a block shorter than 56 px, about 45 minutes, is one line with the time
+    first, and a longer title slides sideways;
+  - all-day events are chips under the date and the weather, two and then
+    "+n", in a band that stays.
+- **While it scrolls,** a bubble on the right edge shows the time at the
+  middle of the screen, rounded to five minutes, with a dashed line across.
+  It fades out a second after the scrolling stops.
+- **It centres on now** whenever it comes into view.
+- **Battery:** the minute clock runs only while the screen shows, and a
+  title moves only while the screen shows and its block is in view.
+- `timeline.js` lays the day out in the mockup's pixels, and `Today.qml`
+  scales them to the screen. `TodayEvent.qml` draws one block.
+
 ## Testing off the watch
 
 ```sh
@@ -158,6 +184,9 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     back from the screenshots by its colours, and checks the names.
   - `quickpanel` draws the quick panel on black, with the system services it
     reads stood in for by `sonic/test/stubs/`.
+  - `today` runs the Today screen with the SDK's real AgendaModel over mkcal.
+    `seed-calendar.cpp` fills four coloured notebooks with the mockup's
+    sample days, invented, and changes them under the open screen.
   - `preview` puts the others' screenshots on one sheet,
     `preview-dark-theme.png`.
 - **The software renderer** draws no shader effects: the quick panel's
