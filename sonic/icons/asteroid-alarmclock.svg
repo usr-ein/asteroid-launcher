@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Alarm clock: an orange bell clock. Sonic Screwdriver's launcher icons, sonic/icons/. -->
+  <circle cx="128" cy="128" r="124" fill="#2e1b05"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#ff9f0a" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M90 186 L74 208 M166 186 L182 208" stroke="#d97a00" stroke-width="12" stroke-linecap="round"/>
+  <g transform="rotate(-40 80 84)"><path d="M50 96 A30 30 0 0 1 110 96 Z" fill="#d97a00"/></g>
+  <g transform="rotate(40 176 84)"><path d="M146 96 A30 30 0 0 1 206 96 Z" fill="#d97a00"/></g>
+  <rect x="120" y="54" width="16" height="22" rx="6" fill="#d97a00"/>
+  <circle cx="128" cy="136" r="68" fill="#ff9f0a"/>
+  <circle cx="128" cy="136" r="52" fill="#fff4e2"/>
+  <path d="M128 136 L128 102 M128 136 L152 150" stroke="#2e1b05" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="128" cy="136" r="8" fill="#ff9f0a"/>
+</svg>

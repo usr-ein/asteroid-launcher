@@ -9,20 +9,30 @@
  * the exit status.
  */
 
+#include <QColor>
+#include <QFile>
 #include <QFont>
+#include <QHash>
 #include <QGuiApplication>
+#include <QImage>
 #include <QProcess>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickView>
+#include <QTranslator>
 #include <QVariantMap>
 
 #include <cstdio>
+#include <fcntl.h>
+#include <linux/input.h>
+#include <unistd.h>
 
 #include <launchermodel.h>
 
+#include "applauncher.h"
 #include "applauncherbackground.h"
 #include "applistmodel.h"
+#include "buttondoubleclick.h"
 
 class TestTools : public QObject
 {
@@ -41,6 +51,59 @@ public:
                 {QStringLiteral("output"), QString::fromUtf8(process.readAll())}};
     }
 
+    // The share of a screenshot's pixels, in a rectangle, within `tolerance`
+    // of a colour on each of red, green and blue: 0 to 1, or -1 when the file
+    // can't be read.
+    Q_INVOKABLE double share(const QString &file, int x, int y, int width, int height,
+                             const QString &colour, int tolerance)
+    {
+        const QImage image(file);
+        if (image.isNull())
+            return -1;
+        const QColor want(colour);
+        const QRect area = QRect(x, y, width, height).intersected(image.rect());
+        int matching = 0;
+        for (int py = area.top(); py <= area.bottom(); ++py) {
+            for (int px = area.left(); px <= area.right(); ++px) {
+                const QColor got = image.pixelColor(px, py);
+                if (qAbs(got.red() - want.red()) <= tolerance && qAbs(got.green() - want.green()) <= tolerance
+                        && qAbs(got.blue() - want.blue()) <= tolerance)
+                    ++matching;
+            }
+        }
+        return area.isEmpty() ? 0 : double(matching) / (area.width() * area.height());
+    }
+
+    // Writes input events, as the kernel's evdev does, to a file such as a
+    // FIFO that ButtonDoubleClick reads: each [msec, type, code, value],
+    // msec the event's time. The file stays open between calls, so that a
+    // FIFO's reader never sees its end.
+    Q_INVOKABLE bool inputEvents(const QString &path, const QVariantList &events)
+    {
+        int fd = m_inputs.value(path, -1);
+        if (fd < 0) {
+            fd = ::open(QFile::encodeName(path).constData(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+            if (fd < 0)
+                return false;
+            m_inputs.insert(path, fd);
+        }
+        for (const QVariant &value : events) {
+            const QVariantList fields = value.toList();
+            if (fields.size() != 4)
+                return false;
+            struct input_event event = {};
+            const qint64 msec = fields.at(0).toLongLong();
+            event.input_event_sec = msec / 1000;
+            event.input_event_usec = (msec % 1000) * 1000;
+            event.type = fields.at(1).toInt();
+            event.code = fields.at(2).toInt();
+            event.value = fields.at(3).toInt();
+            if (::write(fd, &event, sizeof(event)) != sizeof(event))
+                return false;
+        }
+        return true;
+    }
+
     Q_INVOKABLE void log(const QString &line)
     {
         std::printf("%s\n", qPrintable(line));
@@ -51,6 +114,9 @@ public:
     {
         QCoreApplication::exit(status);
     }
+
+private:
+    QHash<QString, int> m_inputs;
 };
 
 int main(int argc, char **argv)
@@ -60,11 +126,18 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "usage: %s <scene.qml>\n", argv[0]);
         return 64;
     }
-    // As the launcher's main.cpp.
+    // As the launcher's main.cpp and LauncherLocaleManager, with the
+    // translations that test.sh compiles.
     QGuiApplication::setFont(QFont(QStringLiteral("Noto Sans")));
+    QTranslator translator;
+    if (translator.load(QLocale(), QStringLiteral("asteroid-launcher"), QStringLiteral("."),
+                        QStringLiteral("/out/translations"), QStringLiteral(".qm")))
+        app.installTranslator(&translator);
     qmlRegisterType<AppLauncherBackground>("org.asteroid.launcher", 1, 0, "AppLauncherBackground");
+    qmlRegisterType<AppLauncher>("org.asteroid.launcher", 1, 0, "AppLauncher");
     qmlRegisterType<AppListModel>("org.asteroid.launcher", 1, 0, "AppListModel");
     qmlRegisterAnonymousType<QAbstractItemModel>("org.asteroid.launcher", 1);
+    qmlRegisterType<ButtonDoubleClick>("org.asteroid.launcher", 1, 0, "ButtonDoubleClick");
     // lipstick's QML plugin isn't in the SDK; its library is the watch's own.
     qmlRegisterType<LauncherModel>("org.nemomobile.lipstick", 0, 1, "LauncherModel");
 

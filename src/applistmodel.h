@@ -33,6 +33,9 @@
  * is honoured: a visible override changes nothing. The directories are
  * watched, so an app goes or comes back as soon as its override is written or
  * deleted, including when a directory appears later.
+ *
+ * Logos: the "logo" role is the URL of the app's own logo, compiled in from
+ * sonic/icons/<desktop file ID>.svg, or "" for an app without one.
  */
 class AppListModel : public QSortFilterProxyModel
 {
@@ -43,6 +46,10 @@ class AppListModel : public QSortFilterProxyModel
     Q_PROPERTY(QStringList hiddenApps READ hiddenApps NOTIFY hiddenAppsChanged)
 
 public:
+    enum Roles {
+        LogoRole = Qt::UserRole + 64
+    };
+
     explicit AppListModel(QObject *parent = nullptr);
 
     QStringList order() const;
@@ -61,6 +68,12 @@ public:
     Q_INVOKABLE QObject *get(int row) const;
 
     void setSourceModel(QAbstractItemModel *model) override;
+    QHash<int, QByteArray> roleNames() const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+
+    // The URL of an app's compiled-in logo, from its .desktop file's path,
+    // or "" when it has none.
+    static QString logoUrl(const QString &filePath);
 
 signals:
     void orderChanged();

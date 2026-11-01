@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Flashlight: a white beam on dark grey. Sonic Screwdriver's launcher icons, sonic/icons/.
+       The beam ends on arcs around the centre, so that it stays inside the disc. -->
+  <circle cx="128" cy="128" r="124" fill="#2a2d33"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#8a919c" stroke-opacity="0.35" stroke-width="3"/>
+  <g transform="rotate(45 128 128)">
+    <path d="M96 104 L68.35 35.57 A110 110 0 0 1 187.65 35.57 L160 104 Z" fill="#ffffff" fill-opacity="0.16"/>
+    <path d="M102 104 L86.41 41.47 A96 96 0 0 1 169.59 41.47 L154 104 Z" fill="#ffffff" fill-opacity="0.9"/>
+    <rect x="92" y="100" width="72" height="12" rx="5" fill="#ffffff"/>
+    <path d="M94 112 L162 112 L150 148 L106 148 Z" fill="#d6dae1"/>
+    <rect x="106" y="144" width="44" height="82" rx="12" fill="#a9b0bb"/>
+    <rect x="120" y="162" width="16" height="22" rx="5" fill="#2a2d33"/>
+  </g>
+</svg>

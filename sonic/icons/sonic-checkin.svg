@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Check-in: a teal speech bubble with a smile. Sonic Screwdriver's launcher icons, sonic/icons/. -->
+  <circle cx="128" cy="128" r="124" fill="#0b2a27"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#2fd3b8" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M80 158 C80 182 72 196 60 208 C86 206 108 196 124 176 Z" fill="#2fd3b8"/>
+  <rect x="48" y="56" width="160" height="124" rx="48" fill="#2fd3b8"/>
+  <circle cx="104" cy="106" r="11" fill="#0b2a27"/>
+  <circle cx="152" cy="106" r="11" fill="#0b2a27"/>
+  <path d="M94 132 Q128 166 162 132" fill="none" stroke="#0b2a27" stroke-width="11" stroke-linecap="round"/>
+</svg>
