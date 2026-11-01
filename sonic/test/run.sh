@@ -43,6 +43,11 @@ printf '[Desktop Entry]\nType=Application\nName=Check-in\nIcon=ios-happy-outline
 	> /usr/share/applications/sonic-health.desktop
 mkdir -p /usr/local/share
 
+# The watch's machine.conf, which qml-asteroid's DeviceSpecs reads.
+mkdir -p /etc/asteroid
+printf '[Display]\nROUND = true\n\n[Capabilities]\nHAS_SPEAKER = true\nHAS_WLAN = true\n\n[Identity]\nMACHINE = rubyfish\n' \
+	> /etc/asteroid/machine.conf
+
 # qml-asteroid's Icon reads /usr/share/icons/asteroid/<name>.svg.
 mkdir -p /usr/share/icons/asteroid
 ln -s "$S"/usr/share/icons/asteroid/*.svg /usr/share/icons/asteroid/
@@ -51,10 +56,11 @@ export HOME=/home/ceres XDG_RUNTIME_DIR=/tmp/runtime
 mkdir -p "$HOME" "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
 arm "$S/usr/bin/dbus-daemon" --config-file=/src/sonic/test/dbus.conf --fork --nopidfile
-export DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/test-bus
+# The test bus stands in for the system bus too, where nothing answers.
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/test-bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=/tmp/test-bus
 
 export QT_QPA_PLATFORM=vnc:size=454x454 QT_QUICK_BACKEND=software
-export QT_PLUGIN_PATH=$S/usr/lib/plugins QML2_IMPORT_PATH=$S/usr/lib/qml
+export QT_PLUGIN_PATH=$S/usr/lib/plugins QML2_IMPORT_PATH=/src/sonic/test/stubs:$S/usr/lib/qml
 export FONTCONFIG_FILE=/src/sonic/test/fonts.conf QT_LOGGING_RULES='qt.qpa.*=false'
 
 status=0
