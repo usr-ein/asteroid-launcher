@@ -2,7 +2,8 @@
 # Sonic Screwdriver: the launcher's QML off the watch, under emulation.
 #
 #   sonic/test/test.sh             every scene
-#   sonic/test/test.sh <scene>...  these scenes: applist
+#   sonic/test/test.sh <scene>...  these scenes: applist, quickpanel, then preview,
+#                                  a sheet of the others' screenshots
 #
 # Each scene (sonic/test/<scene>.qml) runs the fork's own QML, compiled in as
 # in the launcher, in a 454 × 454 view: the watch's screen. It uses the SDK's
@@ -28,7 +29,7 @@ build_volume=${SONIC_BUILD_VOLUME:-sonic-asteroid-launcher-build}-test
 sdk_dir=/opt/asteroid-sdk
 stage=$cache/launcher-stage
 fonts=$cache/watch-fonts
-all_scenes="applist"
+all_scenes="applist quickpanel preview"
 
 # <local name> <path on the watch> <sha256>
 watch_libs="
@@ -98,8 +99,10 @@ docker run --rm --platform linux/amd64 -v "$sdk_volume:$sdk_dir:ro" -v "$build_v
 '
 
 log "running ${scenes[*]} under emulation"
-rm -rf "$out/shots"
 mkdir -p "$out/shots"
+for scene in "${scenes[@]}"; do
+	rm -f "$out/shots/$scene"*.png
+done
 status=0
 docker run --rm --platform linux/arm/v7 \
 	-v "$sdk_volume:$sdk_dir:ro" -v "$stage:/stage:ro" -v "$fonts:/fonts:ro" \

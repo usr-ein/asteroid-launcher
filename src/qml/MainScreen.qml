@@ -208,7 +208,7 @@ Item {
         function onDisplayAboutToBeOff() { wallClock.enabled = false }
         function onDisplayOn() {
             grid.animateIndicators()
-            wallpaperDarkener.opacity = 0
+            wallpaperDarkener.opacity = panelDarkness()
             if (Lipstick.compositor.ambientEnabled) grid.moveTo(0, 0)
         }
         function onDisplayAmbientChanged() { wallpaperAnimation.duration = 300 }
@@ -402,18 +402,24 @@ Item {
         }
     }
 
+    // The dark theme: the wallpaper is the watch face's alone. The panels
+    // around it, the app list, the Today screen, the quick panel and the
+    // notifications, are black, and the wallpaper fades out as one comes in.
+    function panelDarkness() {
+        return Math.min(1, Math.max(Math.abs(grid.normalizedHorOffset), Math.abs(grid.normalizedVerOffset)))
+    }
+
     onLauncherColorOverrideChanged: {
         if (launcherColorOverride) {
             bgCenterColor = Qt.binding(function() { return defaultCenterColor })
             bgOuterColor = Qt.binding(function() { return defaultOuterColor })
-            wallpaperDarkener.opacity = Math.abs(grid.normalizedVerOffset)*0.4
         } else {
             if (grid.normalizedVerOffset > 0) {
                 bgCenterColor = Qt.binding(function() { return launcherCenterColor })
                 bgOuterColor = Qt.binding(function() { return launcherOuterColor })
             }
-            wallpaperDarkener.opacity = 0
         }
+        if (!displayAmbient) wallpaperDarkener.opacity = panelDarkness()
     }
 
     PanelsGrid {
@@ -439,13 +445,14 @@ Item {
             wallpaperAnimation.duration = 0
 
             wallpaper.anchors.horizontalCenterOffset = normalizedHorOffset*width*(-0.05)
-            wallpaperDarkener.opacity = Math.abs(normalizedHorOffset)*0.4
+            wallpaperDarkener.opacity = panelDarkness()
         }
         onNormalizedVerOffsetChanged: {
             if (!displayAmbient) {
                 wallpaperAnimation.duration = 0
 
                 wallpaper.anchors.verticalCenterOffset = height*normalizedVerOffset*(-0.05)
+                wallpaperDarkener.opacity = panelDarkness()
             }
 
             if(normalizedVerOffset == 1 && !launcherColorOverride) {
@@ -469,7 +476,6 @@ Item {
             else {
                 bgCenterColor = Qt.binding(function() { return defaultCenterColor })
                 bgOuterColor = Qt.binding(function() { return defaultOuterColor })
-                if (!displayAmbient) wallpaperDarkener.opacity = Math.abs(normalizedVerOffset)*0.4
             }
         }
     }
