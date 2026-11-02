@@ -28,6 +28,7 @@ status='
 	[ -f /etc/systemd/user/asteroid-launcher.service.d/sonic.conf ] && echo "drop-in: installed (fork enabled)" || echo "drop-in: none (stock launcher)"
 	[ -e /run/user/1000/sonic-launcher-fallback ] && echo "fallback: ACTIVE, the fork crash-looped; the stock launcher runs until the next deploy or reboot"
 	[ -f /usr/local/lib/sonic-launcher/asteroid-launcher ] && echo "installed build: $(sha256sum /usr/local/lib/sonic-launcher/asteroid-launcher | cut -c1-12)"
+	[ -f /home/ceres/.local/state/sonic-launcher-muted ] && echo "speaker: MUTED by the wrapper for the stock launcher (muted before: $(cat /home/ceres/.local/state/sonic-launcher-muted)); a deploy that runs steadily puts it back"
 	true'
 # The stock launcher plays a sound from every notification view it creates, so
 # its start can fire one per stored notification at once, and a crash loop
@@ -35,11 +36,16 @@ status='
 # the speaker sink stays muted until the launcher that should run ($expect,
 # set before) has run with the same pid for 20 s, with no fallback. If it
 # never does, the speaker stays muted, with a loud warning. A wakelock keeps
-# the watch awake meanwhile.
+# the watch awake meanwhile. The wrapper mutes the speaker too when it runs
+# the stock launcher, and says in $muted_by_wrapper what it was before: that's
+# what comes back.
 restart='
 	echo "sonic_deploy '"$wakelock_ns"'" > /sys/power/wake_lock
 	export PULSE_SERVER=unix:/run/user/1000/pulse/native PULSE_COOKIE=/home/ceres/.config/pulse/cookie
 	case "$(pactl get-sink-mute speaker 2>/dev/null)" in *yes*) was_muted=1 ;; *) was_muted=0 ;; esac
+	muted_by_wrapper=/home/ceres/.local/state/sonic-launcher-muted
+	before_wrapper=$(cat $muted_by_wrapper 2>/dev/null || true)
+	case "$before_wrapper" in yes) was_muted=1 ;; no) was_muted=0 ;; esac
 	pactl set-sink-mute speaker 1 2>/dev/null || true
 	t0=$(date +%s)
 	rm -f /run/user/1000/sonic-launcher-starts /run/user/1000/sonic-launcher-fallback
@@ -68,7 +74,13 @@ restart='
 	done
 	if [ $settled = 1 ]; then
 		[ "$was_muted" = 1 ] || pactl set-sink-mute speaker 0 2>/dev/null || true
-		echo "$expect ran steadily for 20 s (pid $pid): the speaker is back as it was"
+		rm -f $muted_by_wrapper
+		if [ "$before_wrapper" = unknown ]; then
+			echo "$expect ran steadily for 20 s (pid $pid). The speaker stays MUTED: the wrapper muted it for the stock launcher, and could not read it before. To unmute it:"
+			echo "  PULSE_SERVER=unix:/run/user/1000/pulse/native PULSE_COOKIE=/home/ceres/.config/pulse/cookie pactl set-sink-mute speaker 0"
+		else
+			echo "$expect ran steadily for 20 s (pid $pid): the speaker is back as it was"
+		fi
 	else
 		echo
 		echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"

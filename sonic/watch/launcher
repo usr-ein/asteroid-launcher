@@ -7,11 +7,20 @@
 # After 3 starts within 2 minutes (a crash loop), it starts the stock launcher
 # until the next deploy or reboot. systemd's own limit (5 starts in 10 s) would
 # leave the watch without any launcher, so this switch has to come first.
+#
+# The stock launcher starts silenced, however it comes to run here: a crash
+# loop, at boot or later, or no fork build. Its NotificationView plays
+# /usr/share/sounds/notification.wav through a QtMultimedia SoundEffect for
+# each notification it shows, whatever the profile: at its start, one per
+# stored notification, all at once.
 ours=/usr/local/lib/sonic-launcher/asteroid-launcher
 stock=/usr/bin/asteroid-launcher
 state=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 starts=$state/sonic-launcher-starts
 fallback=$state/sonic-launcher-fallback
+# Whether the speaker was muted before this muted it for the stock launcher,
+# for deploy.sh to put back: it outlives a reboot, as the mute does.
+muted=$HOME/.local/state/sonic-launcher-muted
 
 now=$(cut -d. -f1 /proc/uptime)
 { awk -v now="$now" '$1 > now - 120' "$starts" 2>/dev/null; echo "$now"; } > "$starts.new"
@@ -24,4 +33,26 @@ fi
 if [ -x "$ours" ] && [ ! -e "$fallback" ]; then
 	exec "$ours" "$@"
 fi
+
+# The speaker muted, in case. PulseAudio may not be up yet at boot, so this
+# never holds up the start for long, nor fails it.
+if [ ! -e "$muted" ]; then
+	before=$(timeout 3 pactl get-sink-mute speaker 2>/dev/null) || before=
+fi
+if timeout 3 pactl set-sink-mute speaker 1 2>/dev/null; then
+	if [ ! -e "$muted" ]; then
+		mkdir -p "$(dirname "$muted")"
+		case "$before" in *yes*) echo yes ;; *no*) echo no ;; *) echo unknown ;; esac > "$muted"
+	fi
+	echo "sonic: the stock launcher runs: muted the speaker; a deploy that runs steadily puts it back" >&2
+else
+	echo "sonic: the stock launcher runs: couldn't mute the speaker (PulseAudio not up?)" >&2
+fi
+# The launcher's SoundEffect is a PulseAudio client of its own: with no server
+# to reach, it plays nothing, and doesn't retry. lipstick's volume control
+# reaches PulseAudio over D-Bus, and ngfd plays the profile's sounds from its
+# own process: neither changes. fakesink for anything that would play through
+# GStreamer's playbin.
+echo "sonic: the stock launcher runs: its own sounds silenced (PULSE_SERVER=unix:/dev/null)" >&2
+export PULSE_SERVER=unix:/dev/null QT_GSTREAMER_PLAYBIN_AUDIOSINK=fakesink
 exec "$stock" "$@"

@@ -63,6 +63,27 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
   means a crash loop, it starts the stock launcher instead, until the next
   deploy or reboot. systemd would give up after 5 starts in 10 s and leave the
   watch with no launcher at all, so the wrapper switches first.
+- **The stock launcher starts silenced** whenever the wrapper runs it: after a
+  crash loop, at boot or any time later, with no deploy script around, or
+  with no fork build.
+  - **Its sound:** the stock binary's own QML has its NotificationView play
+    `/usr/share/sounds/notification.wav` through a QtMultimedia `SoundEffect`
+    for each notification it shows, whatever the profile.
+  - **`PULSE_SERVER=unix:/dev/null`:** `SoundEffect` is a PulseAudio client
+    of the launcher's own, which `QT_GSTREAMER_PLAYBIN_AUDIOSINK` doesn't
+    reach. So the wrapper gives the stock launcher no server to play on.
+    lipstick's volume control reaches PulseAudio over D-Bus, and ngfd plays
+    the profile's sounds from its own process, so neither changes. It sets
+    `QT_GSTREAMER_PLAYBIN_AUDIOSINK=fakesink` too, for anything that would
+    play through GStreamer's playbin.
+  - **The speaker muted too,** if PulseAudio answers within 3 s, which it may
+    not at boot. What it was before goes in `~/.local/state/sonic-launcher-muted`:
+    the next deploy that runs steadily puts it back, and `--status` shows it
+    meanwhile.
+  - `sonic/stock-silent-test.sh` checks the first against the SDK's
+    QtMultimedia, the watch's exact build, and a PulseAudio in a container:
+    a `SoundEffect` opens a stream as it is, still does with `fakesink`
+    alone, and opens none with `PULSE_SERVER=unix:/dev/null`.
 - A deploy restarts the launcher, which closes any open app. Then it shows the
   launcher's QML errors and warnings. Five `TypeError`s from `compositor.qml`
   at startup are normal: the stock launcher prints them too.
@@ -77,8 +98,8 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
   - otherwise it stays muted, after up to 150 s, and the deploy fails with a
     loud warning and the line to unmute it by hand.
 
-  `sonic/deploy-test.sh` tests that, in a container, with stand-ins for
-  `systemctl`, `pactl` and the launcher's process.
+  `sonic/deploy-test.sh` tests that, and the wrapper, in a container, with
+  stand-ins for `systemctl`, `pactl` and the launchers.
 
 To uninstall completely:
 1. Run `sonic/deploy.sh --stock`.
