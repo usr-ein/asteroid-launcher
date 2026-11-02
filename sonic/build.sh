@@ -87,13 +87,16 @@ fi
 log "building asteroid-launcher"
 mkdir -p "$here/out"
 # rcc stamps each compiled-in resource with its file's time, which a checkout
-# or an edit changes. A fixed time, with rcc run again on every build, makes
-# the binary depend on the sources alone: the same sources give the same
-# binary, byte for byte, incremental or clean.
-resource_time=1
+# or an edit changes. Instead, one time for all of them, from their contents
+# (sonic/resource-time.py), with rcc run again on every build: the same
+# sources give the same binary, byte for byte, incremental or clean. And the
+# time changes with any resource, which the QML disk cache on the watch needs:
+# it takes a compiled file as current while its source's time matches.
 run -v "$sdk_volume:$sdk_dir:ro" -v "$build_volume:/build" -v "$src:/src:ro" -v "$stage:/stage:ro" -v "$here/out:/out" \
-	-e SOURCE_DATE_EPOCH=$resource_time -e QT_RCC_SOURCE_DATE_OVERRIDE=$resource_time \
 	"$image" bash -ec '
+	resource_time=$(python3 /src/sonic/resource-time.py /src/src/resources-qml.qrc)
+	export SOURCE_DATE_EPOCH=$resource_time QT_RCC_SOURCE_DATE_OVERRIDE=$resource_time
+	echo "resources stamped $(date -u -d @$resource_time "+%F %T") UTC, from their contents"
 	. '"$sdk_dir"'/environment-setup-armv7vehf-neon-oe-linux-gnueabi
 	# liblipstick needs libraries the SDK lacks; they all exist on the watch.
 	export LDFLAGS="$LDFLAGS -Wl,--allow-shlib-undefined"
