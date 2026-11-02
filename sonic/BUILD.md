@@ -18,6 +18,13 @@ The output is `sonic/out/asteroid-launcher`, stripped, with its debug symbols in
 `sonic/out/asteroid-launcher.debug`. A build is reproducible: the same
 sources give the same binary, byte for byte, incremental or clean, so its
 SHA-256 names it.
+- **The resources' time:** rcc stamps every compiled-in file with one time,
+  from a hash of their contents (`sonic/resource-time.py`), instead of each
+  file's own.
+- **Why from their contents:** Qt's QML disk cache on the watch
+  (`~/.cache/System/qmlcache`) takes a compiled file as current while its
+  source's time matches. A fixed time made each new build run whatever QML an
+  older build had compiled there.
 
 The build runs in Docker with AsteroidOS's 2.1 SDK.
 - The SDK's Qt 5.15.16, mlite, timed and libngf are the exact builds on the
