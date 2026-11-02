@@ -10,6 +10,11 @@
  */
 
 #include <QColor>
+#include <QDBusConnection>
+#include <QDBusContext>
+#include <QDBusMessage>
+#include <QTimer>
+#include <QDateTime>
 #include <QFile>
 #include <QFont>
 #include <QHash>
@@ -117,6 +122,188 @@ private:
     QHash<QString, int> m_inputs;
 };
 
+// ioslink's FindPhone interface on the test bus, as Sonic Screwdriver's
+// bridge PROTOCOL.md § 6.10 defines it and the quick panel's Find phone
+// button reads it (src/qml/quickpanel/FindPhone.qml): what's exported.
+class FindPhoneObject : public QObject, protected QDBusContext
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.sonicscrewdriver.ioslink.FindPhone")
+    Q_PROPERTY(bool Ringing READ ringing SCRIPTABLE true)
+    Q_PROPERTY(bool Available READ available SCRIPTABLE true)
+    Q_PROPERTY(QString Problem READ problem SCRIPTABLE true)
+    Q_PROPERTY(qlonglong ProblemAt READ problemAt SCRIPTABLE true)
+
+public:
+    bool ringing() const { return m_ringing; }
+    bool available() const { return m_available; }
+    QString problem() const { return m_problem; }
+    qlonglong problemAt() const { return m_problemAt; }
+
+    bool m_ringing = false;
+    bool m_available = false;
+    QString m_problem;
+    qlonglong m_problemAt = 0;
+    // How the call in progress ends, as the stand-in decides when it's
+    // called: an error, or no reply at all, for the caller's NoReply.
+    QString m_error;
+    QString m_errorMessage;
+    bool m_hang = false;
+
+signals:
+    void ringCalled();
+    void stopCalled();
+
+public slots:
+    Q_SCRIPTABLE void Ring()
+    {
+        emit ringCalled();
+        reply();
+    }
+    Q_SCRIPTABLE void Stop()
+    {
+        emit stopCalled();
+        reply();
+    }
+
+private:
+    void reply()
+    {
+        if (m_hang)
+            setDelayedReply(true);
+        else if (!m_error.isEmpty())
+            sendErrorReply(m_error, m_errorMessage);
+        m_error.clear();
+        m_hang = false;
+    }
+};
+
+// The stand-in for ioslink that a scene drives, as `ioslink`: it puts the
+// FindPhone interface on the test bus, or takes it off, and answers Ring()
+// and Stop() as PROTOCOL.md § 6.10 says ioslink does. It has a connection of
+// its own, as ioslink is a process of its own: the launcher's calls go
+// through the bus, not QtDBus's shortcut for a service of the caller's own,
+// and its signals and replies come in the order it sends them. Ringing turns at once,
+// before the call returns; a tap that doesn't take puts it back 300 ms later,
+// with Problem set before ProblemAt. Without a session, Problem and then
+// NotConnected.
+class IoslinkStandIn : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool available READ available WRITE setAvailable)
+    Q_PROPERTY(bool ringing READ ringing WRITE setRinging)
+    // How a ring ends: "ring", it rings; "denied" (CODE_DENIED);
+    // "unavailable" (CODE_UNAVAILABLE); "timeout", no answer in time;
+    // "notconnected", the session gone just before the tap; "failed",
+    // org.freedesktop.DBus.Error.Failed, ioslink busy; or "hang", an ioslink
+    // that never replies, for the bus's NoReply.
+    Q_PROPERTY(QString answer MEMBER m_answer)
+    // How a stop ends: "stop", it stops; or "timeout", it doesn't take.
+    Q_PROPERTY(QString stopAnswer MEMBER m_stopAnswer)
+    Q_PROPERTY(int rings MEMBER m_rings)
+    Q_PROPERTY(int stops MEMBER m_stops)
+
+public:
+    IoslinkStandIn()
+    {
+        connect(&m_object, &FindPhoneObject::ringCalled, this, [this] {
+            ++m_rings;
+            if (!available() || m_answer == QLatin1String("notconnected")) {
+                notConnected();
+            } else if (m_answer == QLatin1String("failed")) {
+                setProblem(QStringLiteral("Phone didn't answer"));
+                m_object.m_error = QStringLiteral("org.freedesktop.DBus.Error.Failed");
+                m_object.m_errorMessage = QStringLiteral("ioslink is busy: the tap waited 20 s");
+            } else if (m_answer == QLatin1String("hang")) {
+                m_object.m_hang = true;
+            } else {
+                const QString problem = m_answer == QLatin1String("denied") ? QStringLiteral("Allow alarms in Sonic")
+                    : m_answer == QLatin1String("unavailable") ? QStringLiteral("Unlock your iPhone first")
+                    : m_answer == QLatin1String("timeout") ? QStringLiteral("Phone didn't answer")
+                    : QString();
+                tap(true, problem);
+            }
+        });
+        connect(&m_object, &FindPhoneObject::stopCalled, this, [this] {
+            ++m_stops;
+            if (!available())
+                notConnected();
+            else
+                tap(false, m_stopAnswer == QLatin1String("timeout") ? QStringLiteral("Phone didn't answer") : QString());
+        });
+    }
+
+    bool available() const { return m_object.m_available; }
+    void setAvailable(bool available)
+    {
+        m_object.m_available = available;
+        changed(QStringLiteral("Available"), available);
+    }
+    bool ringing() const { return m_object.m_ringing; }
+    void setRinging(bool ringing)
+    {
+        m_object.m_ringing = ringing;
+        changed(QStringLiteral("Ringing"), ringing);
+    }
+    // A tap: Ringing at once, and back as it was, with the problem, if it
+    // doesn't take.
+    void tap(bool ring, const QString &problem)
+    {
+        const bool before = ringing();
+        setRinging(ring);
+        if (!problem.isEmpty()) {
+            QTimer::singleShot(300, this, [this, before, problem] {
+                setRinging(before);
+                setProblem(problem);
+            });
+        }
+    }
+    void notConnected()
+    {
+        setProblem(QStringLiteral("Phone not connected"));
+        m_object.m_error = QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone.NotConnected");
+        m_object.m_errorMessage = QStringLiteral("Phone not connected");
+    }
+    void setProblem(const QString &problem)
+    {
+        m_object.m_problem = problem;
+        changed(QStringLiteral("Problem"), problem);
+        m_object.m_problemAt = QDateTime::currentSecsSinceEpoch();
+        changed(QStringLiteral("ProblemAt"), m_object.m_problemAt);
+    }
+
+    Q_INVOKABLE bool start()
+    {
+        return m_bus.registerObject(path, &m_object,
+                                    QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableProperties)
+            && m_bus.registerService(service);
+    }
+
+    Q_INVOKABLE void stop()
+    {
+        m_bus.unregisterService(service);
+        m_bus.unregisterObject(path);
+    }
+
+private:
+    void changed(const QString &name, const QVariant &value)
+    {
+        QDBusMessage signal = QDBusMessage::createSignal(path, QStringLiteral("org.freedesktop.DBus.Properties"),
+                                                         QStringLiteral("PropertiesChanged"));
+        signal << QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone") << QVariantMap{{name, value}} << QStringList();
+        m_bus.send(signal);
+    }
+
+    const QString service = QStringLiteral("org.sonicscrewdriver.ioslink");
+    const QString path = QStringLiteral("/org/sonicscrewdriver/ioslink");
+    QDBusConnection m_bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, QStringLiteral("ioslink"));
+    FindPhoneObject m_object;
+    QString m_answer = QStringLiteral("ring");
+    QString m_stopAnswer = QStringLiteral("stop");
+    int m_rings = 0;
+    int m_stops = 0;
+};
+
 // --load: compiles QML files as lipstick's HomeApplication does, the
 // compositor's first, in an engine that has only what the launcher has at
 // that point: its own types, registered as main() registers them, and the
@@ -167,8 +354,10 @@ int main(int argc, char **argv)
     qmlRegisterType<LauncherModel>("org.nemomobile.lipstick", 0, 1, "LauncherModel");
 
     TestTools tools;
+    IoslinkStandIn ioslink;
     QQuickView view;
     view.rootContext()->setContextProperty(QStringLiteral("test"), &tools);
+    view.rootContext()->setContextProperty(QStringLiteral("ioslink"), &ioslink);
     view.setResizeMode(QQuickView::SizeRootObjectToView);
     view.resize(454, 454);
     view.setSource(QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1])));

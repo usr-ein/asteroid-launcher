@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Find phone: a phone with sound waves, for the quick panel's button, in
+       white like the panel's other glyphs. Sonic Screwdriver's icons, sonic/icons/. -->
+  <path fill="#ffffff" fill-rule="evenodd" d="M214 80h84a30 30 0 0 1 30 30v292a30 30 0 0 1 -30 30h-84a30 30 0 0 1 -30 -30V110a30 30 0 0 1 30 -30zM202 124v252h108V124zM256 392a13 13 0 1 0 0.01 0zM238 98a6 6 0 0 0 0 12h36a6 6 0 0 0 0 -12z"/>
+  <g fill="none" stroke="#ffffff" stroke-width="26" stroke-linecap="round">
+    <path d="M159.3 315.7A118 118 0 0 1 159.3 180.3"/>
+    <path d="M110.5 332A168 168 0 0 1 110.5 164"/>
+    <path d="M352.7 180.3A118 118 0 0 1 352.7 315.7"/>
+    <path d="M401.5 164A168 168 0 0 1 401.5 332"/>
+  </g>
+</svg>

@@ -227,6 +227,45 @@ what they did.
   - Its window is the one whose process's command line names
     asteroid-flashlight, however it was opened.
 
+## The quick panel's Find phone button
+
+The first button of the quick panel's sliding row rings the iPhone, through
+silent mode and Focus, until it's stopped there or here (Sonic Screwdriver's
+find_phone.md). Never a sound or a vibration on the watch: the button's light
+is the feedback.
+- **ioslink's FindPhone interface,** on its object on the session bus
+  (`src/qml/quickpanel/FindPhone.qml`):
+  - `Ring()` and `Stop()`, which turn `Ringing` true or false at once, before
+    the iPhone answers; a tap that doesn't take puts it back, with `Problem`;
+  - `Ringing`, the button's light, which has no state of its own;
+  - `Available`;
+  - `Problem`, shown for 3 s from `ProblemAt`, in Unix seconds, such as
+    "Allow alarms in Sonic".
+- **A tap:** idle, it rings; while ringing, it stops. Without the iPhone, it
+  says "Phone not connected" for 3 s, over the battery meter, and asks
+  nothing. A tap clears the last tap's line.
+- **A failed call** shows the line that `Problem` would: "Phone didn't
+  answer" for `org.freedesktop.DBus.Error.Failed`, ioslink busy, and for the
+  bus's `NoReply`; "Phone not connected" for `NotConnected` and the bus's
+  other errors, such as no ioslink.
+- **Its glyph** is `sonic/icons/find-phone.svg`, compiled in;
+  `QuickPanelToggle` takes a picture of its own, `iconSource`.
+- **In the watch's settings:** the launcher's defaults put the button first,
+  enabled, but settings that list the toggles, as the watch's do, need it
+  added:
+
+  ```sh
+  sonic/quickpanel-findphone.sh            # first in the sliding row, enabled
+  sonic/quickpanel-findphone.sh --undo     # take it out again
+  sonic/quickpanel-findphone.sh --status   # where it is
+  ```
+
+  It runs `sonic/watch/quickpanel-findphone` on the watch, which changes the
+  user's dconf keys `/desktop/asteroid/quickpanel/slider` and `enabled`; the
+  panel follows at once. The Settings app's quick panel page keeps only the
+  toggles it knows, so it needs the button too: the settings fork's
+  `findPhoneButton` entry.
+
 ## Testing off the watch
 
 ```sh
@@ -258,7 +297,11 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     itself, and that lipstick alone honours no override. It reads each logo
     back from the screenshots by its colours, and checks the names.
   - `quickpanel` draws the quick panel on black, with the system services it
-    reads stood in for by `sonic/test/stubs/`.
+    reads stood in for by `sonic/test/stubs/`. Its Find phone button runs
+    against a stand-in for ioslink's FindPhone interface on the test bus, in
+    the harness, and `sonic/watch/quickpanel-findphone` against the SDK's own
+    dconf service. The sound toggle's unmute sound, a `SoundEffect` that opens
+    an audio stream as soon as it exists, is there only with the toggle.
   - `today` runs the Today screen with the SDK's real AgendaModel over mkcal.
     `seed-calendar.cpp` fills four coloured notebooks with the mockup's
     sample days, invented, and changes them under the open screen.

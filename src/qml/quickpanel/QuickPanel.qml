@@ -86,7 +86,7 @@ Item {
     ConfigurationValue {
         id: sliderToggles
         key: "/desktop/asteroid/quickpanel/slider"
-        defaultValue: ["brightnessToggle", "bluetoothToggle", "hapticsToggle", "wifiToggle", "soundToggle", "cinemaToggle", "aodToggle", "powerOffToggle", "rebootToggle", "musicButton", "flashlightButton"]
+        defaultValue: ["findPhoneButton", "brightnessToggle", "bluetoothToggle", "hapticsToggle", "wifiToggle", "soundToggle", "cinemaToggle", "aodToggle", "powerOffToggle", "rebootToggle", "musicButton", "flashlightButton"]
     }
 
     ConfigurationValue {
@@ -105,7 +105,8 @@ Item {
             "powerOffToggle": true,
             "rebootToggle": true,
             "musicButton": false,
-            "flashlightButton": false
+            "flashlightButton": false,
+            "findPhoneButton": true
         }
     }
 
@@ -256,7 +257,8 @@ Item {
             "powerOffToggle": powerOffToggleComponent,
             "rebootToggle": rebootToggleComponent,
             "musicButton": musicButtonComponent,
-            "flashlightButton": flashlightButtonComponent
+            "flashlightButton": flashlightButtonComponent,
+            "findPhoneButton": findPhoneButtonComponent
         };
 
         if (DeviceSpecs.hasWlan) {
@@ -802,6 +804,73 @@ Item {
         QuickPanelToggle {
             icon: "ios-bulb-outline"
             onClicked: appLauncher.launchApp("asteroid-flashlight")
+        }
+    }
+
+    // Rings the iPhone, through ioslink: a button, lit while it rings.
+    Component {
+        id: findPhoneButtonComponent
+        QuickPanelToggle {
+            objectName: "findPhoneButton"
+            iconSource: "qrc:/sonic/icons/find-phone.svg"
+            checkable: findPhone.lit
+            checked: findPhone.lit
+            tint: findPhone.lit ? "#30d158" : "#2b2f36"
+            onClicked: {
+                // The last tap's line is over.
+                rootitem.notice = ""
+                findPhone.tap()
+            }
+        }
+    }
+
+    FindPhone {
+        id: findPhone
+        objectName: "findPhone"
+        onNotice: rootitem.showNotice(text)
+    }
+
+    // A line for 3 s over the battery meter, such as the Find phone button's
+    // "Phone not connected".
+    property string notice: ""
+
+    function showNotice(text) {
+        notice = text
+        noticeTimeout.restart()
+    }
+
+    Timer {
+        id: noticeTimeout
+        interval: 3000
+        onTriggered: rootitem.notice = ""
+    }
+
+    Rectangle {
+        id: noticeBox
+        objectName: "notice"
+        z: 10
+        anchors.horizontalCenter: valueMeter.horizontalCenter
+        anchors.top: valueMeter.top
+        anchors.topMargin: -Dims.l(4)
+        width: Dims.w(76)
+        height: Dims.l(26)
+        color: "black"
+        opacity: rootitem.notice !== "" ? 1 : 0
+        visible: opacity > 0
+
+        Behavior on opacity { NumberAnimation { duration: 200 } }
+
+        Label {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: Dims.l(4)
+            width: Dims.w(64)
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
+            elide: Text.ElideRight
+            text: rootitem.notice
+            color: "#e8ecf2"
+            font.pixelSize: Dims.l(6)
         }
     }
 

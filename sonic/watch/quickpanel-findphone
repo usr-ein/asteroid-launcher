@@ -1,0 +1,93 @@
+#!/bin/sh
+# Sonic Screwdriver: the quick panel's Find phone button, first in its sliding
+# row and enabled, in the watch user's settings (dconf).
+# sonic/quickpanel-findphone.sh runs this on the watch over SSH, as root.
+#
+#   quickpanel-findphone            add it: first in the sliding row, enabled
+#   quickpanel-findphone --undo     take it out again
+#   quickpanel-findphone --status   where it is
+#
+# The launcher's defaults have it there already. This is for settings that
+# list the toggles themselves, as the watch's do; the launcher follows at
+# once. SONIC_DCONF_USER names the user whose settings change, ceres by
+# default; empty, the current user, as in the tests.
+set -eu
+
+user=${SONIC_DCONF_USER-ceres}
+dir=/desktop/asteroid/quickpanel/
+button=findPhoneButton
+
+as_user() {
+	if [ -n "$user" ]; then
+		uid=$(id -u "$user")
+		# su keeps root's XDG_RUNTIME_DIR, where dconf can't write as the user.
+		su "$user" -c "XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus dconf $*"
+	else
+		dconf "$@"
+	fi
+}
+
+usage() {
+	echo "usage: quickpanel-findphone [--undo | --status]" >&2
+	exit 64
+}
+
+slider=$(as_user read "${dir}slider")
+enabled=$(as_user read "${dir}enabled")
+
+case ${1:-} in
+--status)
+	[ $# = 1 ] || usage
+	default="unset: the default of the launcher, with $button"
+	echo "slider: ${slider:-$default first}"
+	echo "enabled: ${enabled:-$default on}"
+	exit 0
+	;;
+--undo)
+	[ $# = 1 ] || usage
+	new_slider=$(printf '%s' "$slider" | sed \
+		-e "s/<'$button'>, //" -e "s/, <'$button'>//" -e "s/<'$button'>//" \
+		-e "s/'$button', //" -e "s/, '$button'//" -e "s/'$button'//")
+	[ "$new_slider" != "[]" ] || new_slider="@av []"
+	new_enabled=$(printf '%s' "$enabled" | sed \
+		-e "s/'$button': <[a-z]*>, //" -e "s/, '$button': <[a-z]*>//" -e "s/'$button': <[a-z]*>//")
+	[ "$new_enabled" != "{}" ] || new_enabled="@a{sv} {}"
+	;;
+'')
+	if [ -z "$slider" ] || printf '%s' "$slider" | grep -q "'$button'"; then
+		new_slider=$slider
+	elif [ "$slider" = "@av []" ] || [ "$slider" = "@as []" ]; then
+		new_slider="[<'$button'>]"
+	elif printf '%s' "$slider" | grep -q '^\[<'; then
+		new_slider=$(printf '%s' "$slider" | sed "s/^\[/[<'$button'>, /")
+	else
+		new_slider=$(printf '%s' "$slider" | sed "s/^\[/['$button', /")
+	fi
+	if [ -z "$enabled" ]; then
+		new_enabled=$enabled
+	elif printf '%s' "$enabled" | grep -q "'$button'"; then
+		new_enabled=$(printf '%s' "$enabled" | sed "s/'$button': <false>/'$button': <true>/")
+	elif [ "$enabled" = "@a{sv} {}" ]; then
+		new_enabled="{'$button': <true>}"
+	else
+		new_enabled=$(printf '%s' "$enabled" | sed "s/^{/{'$button': <true>, /")
+	fi
+	;;
+*)
+	usage
+	;;
+esac
+
+# Unset keys stay unset: the launcher's defaults hold the button already.
+keys=""
+[ -z "$slider" ] || [ "$new_slider" = "$slider" ] || keys="${keys}slider=$new_slider
+"
+[ -z "$enabled" ] || [ "$new_enabled" = "$enabled" ] || keys="${keys}enabled=$new_enabled
+"
+if [ -z "$keys" ]; then
+	echo "nothing to change"
+	exit 0
+fi
+printf '[/]\n%s' "$keys" | as_user load "$dir"
+echo "slider: $(as_user read "${dir}slider")"
+echo "enabled: $(as_user read "${dir}enabled")"
