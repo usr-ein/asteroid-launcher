@@ -69,7 +69,16 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
 - The speaker stays muted while the launcher restarts. The stock 2.1 launcher
   plays a sound from every notification view it creates, so its start fired
   one per stored notification at once. On 2026-10-31 that was 17 at the same
-  time.
+  time. A crash loop ends in that stock launcher, when the wrapper falls
+  back. So:
+  - the speaker comes back, as it was, only once the launcher that should run
+    (the fork's build, or the stock one for `--stock`) has run with the same
+    pid for 20 s, with no fallback;
+  - otherwise it stays muted, after up to 150 s, and the deploy fails with a
+    loud warning and the line to unmute it by hand.
+
+  `sonic/deploy-test.sh` tests that, in a container, with stand-ins for
+  `systemctl`, `pactl` and the launcher's process.
 
 To uninstall completely:
 1. Run `sonic/deploy.sh --stock`.
