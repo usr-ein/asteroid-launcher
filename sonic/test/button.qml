@@ -10,6 +10,9 @@
  *   three and four in a row, a held button, the power key, KEY_VOLUMEDOWN
  *   (114, the PMIC's RESIN key, which has no button on this watch), and
  *   presses that arrive late, timed by their events.
+ * - Its single press, after the double-click's window, and ringsbutton.js,
+ *   which compositor.qml asks which app a single press opens: the rings
+ *   face's app, only there (the main repo's docs/prd/clock.md § 8.9).
  * - Flashlight.qml, the launcher's own, with a stand-in for compositor.qml's
  *   windows (its window functions as they are) and processes of this
  *   container: the flashlight's window is the one whose process's command
@@ -22,6 +25,7 @@
 import QtQuick 2.9
 import org.asteroid.launcher 1.0
 import "qrc:/qml/compositor"
+import "qrc:/qml/ringsbutton.js" as RingsButton
 
 Scene {
     id: desktop
@@ -37,6 +41,8 @@ Scene {
     ButtonDoubleClick {
         id: button
         property int clicks: 0
+        property int singles: 0
+        onSingleClicked: singles++
         onDoubleClicked: {
             clicks++
             if (wired)
@@ -244,6 +250,54 @@ Scene {
                                  "two presses 900 ms apart that arrive together: none", done)
                 })
             })
+        },
+
+        // The single press, and what it opens.
+        function(done) {
+            var singles = button.singles, clicks = button.clicks
+            send(press(41000))
+            after(200, function() {
+                expectEqual(button.singles - singles, 0, "a single press waits out the double-click's window")
+                after(500, function() {
+                    expectEqual(button.singles - singles, 1, "then it's a single press")
+                    send(press(45000).concat(press(45300)))
+                    after(700, function() {
+                        expectEqual(button.singles - singles, 1, "a double-click is no single press")
+                        expectEqual(button.clicks - clicks, 1, "but a double-click")
+                        send(press(49000).concat(press(49500)))
+                        after(700, function() {
+                            expectEqual(button.singles - singles, 3, "two presses 500 ms apart: two single presses")
+                            send(press(53000))
+                            after(700, function() {
+                                send(press(53900).concat(press(54100)))
+                                after(700, function() {
+                                    expectEqual([button.singles - singles, button.clicks - clicks], [4, 2],
+                                                "a single press, then a double-click: one of each")
+                                    done()
+                                })
+                            })
+                        })
+                    })
+                })
+            })
+        },
+        function(done) {
+            expectEqual(RingsButton.app(true, false, true, 0, 0, "stopwatches"), "sonic-stopwatch",
+                        "on the stopwatches' rings: the Stopwatch app")
+            expectEqual(RingsButton.app(true, false, true, 0, 0, "timers"), "sonic-timer",
+                        "on the timers' rings: the Timer app")
+            expectEqual(RingsButton.app(true, false, true, 0, 0, ""), "", "the face without rings: nothing")
+            expectEqual(RingsButton.app(false, false, true, 0, 0, "timers"), "", "the display off: nothing")
+            expectEqual(RingsButton.app(true, true, true, 0, 0, "timers"), "", "ambient: nothing")
+            expectEqual(RingsButton.app(true, false, false, 0, 0, "timers"), "", "an app in front: nothing")
+            expectEqual(RingsButton.app(true, false, true, 1, 0, "timers"), "", "the Today panel: nothing")
+            expectEqual(RingsButton.app(true, false, true, 0, 1, "timers"), "", "the app list: nothing")
+            var wiring = sh("grep -c 'onSingleClicked' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'RingsButton.app' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'sonicRingsView' /src/src/qml/MainScreen.qml").output.trim().split("\n")
+            check(wiring[0] === "1" && wiring[1] === "1" && parseInt(wiring[2]) > 0,
+                  "compositor.qml asks it on a single press, and MainScreen reads the face's view: " + wiring)
+            done()
         },
 
         // The processes that the windows belong to.

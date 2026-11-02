@@ -6,6 +6,7 @@
         <file alias="MainScreen.qml">qml/MainScreen.qml</file>
         <file alias="Today.qml">qml/today/Today.qml</file>
         <file alias="compositor.qml">qml/compositor/compositor.qml</file>
+        <file alias="ringsbutton.js">qml/compositor/ringsbutton.js</file>
         <file alias="Splash.qml">qml/misc/Splash.qml</file>
         <file alias="PanelsGrid.qml">qml/misc/PanelsGrid.qml</file>
         <file alias="AppList.qml">qml/misc/AppList.qml</file>
@@ -44,6 +45,8 @@
         <file alias="asteroid-timer.svg">../sonic/icons/asteroid-timer.svg</file>
         <file alias="asteroid-weather.svg">../sonic/icons/asteroid-weather.svg</file>
         <file alias="sonic-weather.svg">../sonic/icons/asteroid-weather.svg</file>
+        <file alias="sonic-timer.svg">../sonic/icons/asteroid-timer.svg</file>
+        <file alias="sonic-stopwatch.svg">../sonic/icons/asteroid-stopwatch.svg</file>
         <file alias="find-phone.svg">../sonic/icons/find-phone.svg</file>
         <file alias="sonic-checkin.svg">../sonic/icons/sonic-checkin.svg</file>
     </qresource>
