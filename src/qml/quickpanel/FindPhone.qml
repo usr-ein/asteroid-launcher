@@ -9,18 +9,22 @@
  *
  * ioslink's FindPhone interface, on its object on the session bus (the
  * bridge's PROTOCOL.md, § 6.10):
- * - Ring() and Stop(), which return at once; with no session, they fail with
- *   org.sonicscrewdriver.ioslink.FindPhone.NotConnected;
- * - Ringing: the iPhone rings, as far as the watch knows;
- * - Available: a session with Sonic that can ring;
+ * - Ringing: the iPhone rings, as far as the watch knows. It is the button's
+ *   light, which has no state of its own.
+ * - Ring() and Stop() turn Ringing true or false at once, before the iPhone
+ *   answers, and return. A tap that doesn't take puts Ringing back, and sets
+ *   Problem.
+ * - Available: a session with Sonic that can ring.
  * - Problem, from ProblemAt in Unix seconds: a line to show for 3 s: "Phone
  *   not connected", "Allow alarms in Sonic", "Unlock your iPhone first" or
  *   "Phone didn't answer".
+ * - Ring() and Stop() fail with org.sonicscrewdriver.ioslink.FindPhone.
+ *   NotConnected without a session, and with org.freedesktop.DBus.Error.
+ *   Failed when ioslink was busy or couldn't send; Problem says so too. The
+ *   bus's own errors aren't in Problem: no ioslink, or none that answers.
  *
- * tap(): rings when idle, stops when ringing, and says "Phone not connected"
- * when the iPhone can't ring, without asking anything. The button lights at
- * a tap that rings, before ioslink's answer, and goes dark at a tap that
- * stops; then it follows Ringing.
+ * tap(): says "Phone not connected" when the iPhone can't ring, without
+ * asking anything; otherwise rings, or stops the ring.
  */
 import QtQuick 2.9
 import Nemo.DBus 2.0
@@ -33,49 +37,31 @@ Item {
     readonly property string iface: "org.sonicscrewdriver.ioslink.FindPhone"
 
     readonly property bool available: reader.item !== null && reader.item.available
-    // Lit: ringing, or asked to ring and waiting for the answer, unless asked
-    // to stop.
-    readonly property bool lit: !stopping && (asking || (reader.item !== null && reader.item.ringing))
+    readonly property bool lit: reader.item !== null && reader.item.ringing
 
     // The line to show for 3 s.
     signal notice(string text)
 
-    property bool asking: false
-    property bool stopping: false
-
     function tap() {
-        if (lit) {
-            asking = false
-            stopping = true
-            settle.restart()
-            call("Stop")
-        } else if (!available) {
+        if (!available) {
             notice("Phone not connected")
-        } else {
-            stopping = false
-            asking = true
-            settle.restart()
-            call("Ring")
+            return
         }
-    }
-
-    function call(method) {
-        reader.item.typedCall(method, [], function() { }, function(error) {
-            findPhone.asking = false
-            findPhone.stopping = false
-            findPhone.notice("Phone not connected")
-            console.log("findphone: " + method + " failed: " + error)
+        var method = lit ? "Stop" : "Ring"
+        reader.item.typedCall(method, [], function() { }, function(name, message) {
+            findPhone.notice(findPhone.lineFor(name))
+            console.log("findphone: " + method + " failed: " + name + ": " + message)
         })
     }
 
-    // At most 5 s of light, or dark, of its own, without ioslink's answer.
-    Timer {
-        id: settle
-        interval: 5000
-        onTriggered: {
-            findPhone.asking = false
-            findPhone.stopping = false
-        }
+    // The line for a failed Ring() or Stop(), the same as Problem's when
+    // ioslink sets it: ioslink busy, or stuck, is no answer; no session, or
+    // no ioslink, is no phone.
+    function lineFor(error) {
+        if (error === "org.freedesktop.DBus.Error.Failed" || error === "org.freedesktop.DBus.Error.NoReply"
+                || error === "org.freedesktop.DBus.Error.Timeout")
+            return "Phone didn't answer"
+        return "Phone not connected"
     }
 
     // ioslink on the session bus, and its FindPhone interface read afresh
@@ -105,21 +91,15 @@ Item {
         }
     }
 
+    // A problem is new for 3 s from its time: one read afresh, older, doesn't
+    // show. ioslink sets Problem before ProblemAt.
     Connections {
         target: reader.item
         ignoreUnknownSignals: true
-        function onRingingChanged() {
-            findPhone.asking = false
-            findPhone.stopping = false
-        }
-        // A problem is new for 3 s from its time: one read afresh, older,
-        // doesn't show.
         function onProblemAtChanged() {
             var r = reader.item
-            if (r.problem !== "" && Math.abs(Date.now() / 1000 - r.problemAt) < 3) {
-                findPhone.asking = false
+            if (r.problem !== "" && Math.abs(Date.now() / 1000 - r.problemAt) < 3)
                 findPhone.notice(r.problem)
-            }
         }
     }
 }

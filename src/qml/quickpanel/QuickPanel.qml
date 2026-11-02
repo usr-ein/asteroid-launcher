@@ -812,7 +812,11 @@ Item {
             checkable: findPhone.lit
             checked: findPhone.lit
             tint: findPhone.lit ? "#30d158" : "#2b2f36"
-            onClicked: findPhone.tap()
+            onClicked: {
+                // The last tap's line is over.
+                rootitem.notice = ""
+                findPhone.tap()
+            }
         }
     }
 
@@ -820,8 +824,6 @@ Item {
         id: findPhone
         objectName: "findPhone"
         onNotice: rootitem.showNotice(text)
-        // A line from before is wrong once the iPhone rings.
-        onLitChanged: if (lit) rootitem.notice = ""
     }
 
     // A line for 3 s over the battery meter, such as the Find phone button's

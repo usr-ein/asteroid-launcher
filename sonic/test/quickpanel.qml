@@ -7,11 +7,13 @@
  * reads are stand-ins (stubs/), with the alert profile on "general".
  * - The Find phone button, against `ioslink`, the harness's stand-in for
  *   ioslink's FindPhone interface on the test bus: first in the sliding row;
- *   "Phone not connected" without ioslink or without the iPhone; lit while
- *   the iPhone rings, from the tap on; dark again at a tap, or when the
- *   iPhone stops; "Allow alarms in Sonic" for CODE_DENIED; dark again
- *   without an answer; an old problem not shown again after a restart of
- *   ioslink.
+ *   "Phone not connected", and nothing called, without ioslink, without the
+ *   iPhone, or without a session while it rings; lit as ioslink's Ringing,
+ *   which a tap turns, with no light of its own; dark again at a tap, or
+ *   when the iPhone stops; a tap that doesn't take, ring or stop, with
+ *   Ringing back as it was; each of PROTOCOL.md § 6.10's lines, from Problem
+ *   and from Ring()'s errors, the bus's NoReply included; an old problem not
+ *   shown again after a restart of ioslink.
  * - The bell: general, silent, outdoors.
  * - sonic/watch/quickpanel-findphone, against the SDK's own dconf service:
  *   with the watch's settings, which list the toggles, the button isn't
@@ -126,18 +128,17 @@ Scene {
                 var button = named("findPhoneButton")
                 check(panel.notice === "Phone not connected", "the last tap's line still shows")
                 button.clicked(null)
-                check(button.checked, "a tap lights the button at once")
-                expectEqual(panel.notice, "", "and clears that line")
-                after(300, function() {
-                    check(ioslink.rings === 1 && ioslink.ringing, "and calls Ring(): ioslink's Ringing at once")
+                expectEqual(panel.notice, "", "a tap clears it")
+                check(!button.checked, "the button has no light of its own")
+                waitFor(function() { return button.checked }, 2000, "lit as soon as ioslink's Ringing turns", function() {
+                    check(ioslink.rings === 1 && ioslink.ringing, "which Ring() turned")
                     after(300, function() {
                         check(button.checked, "lit while the iPhone rings")
                         keep("quickpanel-ringing", "The iPhone rings: lit", function() {
                             button.clicked(null)
-                            check(!button.checked, "a tap while it rings: dark at once")
-                            after(300, function() {
-                                check(ioslink.stops === 1 && !ioslink.ringing, "and Stop()")
-                                check(!button.checked, "and dark")
+                            check(button.checked, "a tap while it rings: lit until ioslink's Ringing turns")
+                            waitFor(function() { return !button.checked }, 2000, "then dark", function() {
+                                check(ioslink.stops === 1 && !ioslink.ringing, "which Stop() turned")
                                 done()
                             })
                         })
@@ -159,21 +160,53 @@ Scene {
             })
         },
 
-        // CODE_DENIED: AlarmKit not allowed in Sonic.
+        // Ringing as far as the watch knows, and the session gone: nothing
+        // to stop the ring with.
         function(done) {
-            ioslink.answer = "denied"
-            named("findPhoneButton").clicked(null)
-            waitFor(function() { return panel.notice !== "" }, 3000, "an answer", function() {
-                expectEqual(panel.notice, "Allow alarms in Sonic", "AlarmKit not allowed: \"Allow alarms in Sonic\"")
-                check(!named("findPhoneButton").checked, "and dark")
-                keep("quickpanel-denied", "Not allowed: \"Allow alarms in Sonic\"", done)
+            ioslink.ringing = true
+            ioslink.available = false
+            waitFor(function() { return !named("findPhone").available && named("findPhoneButton").checked }, 3000,
+                    "ringing, without a session", function() {
+                var stops = ioslink.stops
+                named("findPhoneButton").clicked(null)
+                after(300, function() {
+                    expectEqual(panel.notice, "Phone not connected", "a tap: \"Phone not connected\"")
+                    check(ioslink.stops === stops, "and no Stop()")
+                    check(named("findPhoneButton").checked, "still lit, as ioslink's Ringing")
+                    ioslink.ringing = false
+                    ioslink.available = true
+                    waitFor(function() { return named("findPhone").available && !named("findPhoneButton").checked }, 3000,
+                            "the session back, the ring over", done)
+                })
             })
         },
 
-        // The other problems of PROTOCOL.md § 6.10, each in its turn.
+        // CODE_DENIED: AlarmKit not allowed in Sonic. Lit at the tap, as
+        // ioslink's Ringing, then dark again with the line.
+        function(done) {
+            waitFor(function() { return panel.notice === "" }, 5000, "the line gone", function() {
+                ioslink.answer = "denied"
+                var findPhone = named("findPhone")
+                var lit = false
+                function seen() { lit = lit || findPhone.lit }
+                findPhone.litChanged.connect(seen)
+                named("findPhoneButton").clicked(null)
+                waitFor(function() { return panel.notice !== "" }, 3000, "an answer", function() {
+                    findPhone.litChanged.disconnect(seen)
+                    check(lit, "lit at the tap")
+                    expectEqual(panel.notice, "Allow alarms in Sonic", "AlarmKit not allowed: \"Allow alarms in Sonic\"")
+                    check(!named("findPhoneButton").checked, "and dark again, as ioslink puts Ringing back")
+                    keep("quickpanel-denied", "Not allowed: \"Allow alarms in Sonic\"", done)
+                })
+            })
+        },
+
+        // The other problems of PROTOCOL.md § 6.10, each in its turn: from
+        // Problem, and from Ring()'s error behind it for "notconnected" and
+        // "failed", which must leave the same line.
         function(done) {
             var problems = [["unavailable", "Unlock your iPhone first"], ["timeout", "Phone didn't answer"],
-                            ["notconnected", "Phone not connected"]]
+                            ["notconnected", "Phone not connected"], ["failed", "Phone didn't answer"]]
             function one() {
                 if (problems.length === 0) {
                     done()
@@ -184,35 +217,65 @@ Scene {
                     ioslink.answer = p[0]
                     named("findPhoneButton").clicked(null)
                     waitFor(function() { return panel.notice !== "" }, 3000, "an answer", function() {
-                        expectEqual(panel.notice, p[1], p[0] + ": \"" + p[1] + "\"")
-                        check(!named("findPhoneButton").checked, "and dark")
-                        one()
+                        after(500, function() {
+                            expectEqual(panel.notice, p[1], p[0] + ": \"" + p[1] + "\"")
+                            check(!named("findPhoneButton").checked, "and dark")
+                            one()
+                        })
                     })
                 })
             }
             one()
         },
 
-        // No answer: dark again after 5 s.
+        // A stop that doesn't take: lit again, as ioslink puts Ringing back.
         function(done) {
             waitFor(function() { return panel.notice === "" }, 5000, "the line gone", function() {
-                ioslink.answer = "none"
+                ioslink.answer = "ring"
+                ioslink.stopAnswer = "timeout"
                 var button = named("findPhoneButton")
                 button.clicked(null)
-                check(button.checked, "a tap that gets no answer: lit")
-                waitFor(function() { return !button.checked }, 7000, "dark again without an answer", done)
+                waitFor(function() { return button.checked }, 2000, "ringing", function() {
+                    button.clicked(null)
+                    waitFor(function() { return !button.checked }, 2000, "a tap: dark, as Stop() turns Ringing", function() {
+                        waitFor(function() { return panel.notice !== "" }, 3000, "an answer", function() {
+                            expectEqual(panel.notice, "Phone didn't answer", "a stop that doesn't take: \"Phone didn't answer\"")
+                            check(button.checked, "and lit again: the iPhone still rings")
+                            ioslink.stopAnswer = "stop"
+                            ioslink.ringing = false
+                            waitFor(function() { return !button.checked }, 2000, "then stopped on the iPhone", done)
+                        })
+                    })
+                })
+            })
+        },
+
+        // An ioslink that never replies: the bus's NoReply, after its 25 s.
+        function(done) {
+            waitFor(function() { return panel.notice === "" }, 5000, "the line gone", function() {
+                ioslink.answer = "hang"
+                var button = named("findPhoneButton")
+                button.clicked(null)
+                waitFor(function() { return panel.notice !== "" }, 40000, "the bus's NoReply", function() {
+                    expectEqual(panel.notice, "Phone didn't answer", "no reply: \"Phone didn't answer\"")
+                    check(!button.checked, "and dark")
+                    ioslink.answer = "ring"
+                    done()
+                })
             })
         },
 
         // ioslink restarts: its last problem, old by then, isn't shown again.
         function(done) {
-            ioslink.stop()
-            waitFor(function() { return !named("findPhone").available }, 5000, "ioslink gone", function() {
-                check(ioslink.start(), "ioslink back")
-                waitFor(function() { return named("findPhone").available }, 5000, "and the iPhone with it", function() {
-                    after(500, function() {
-                        expectEqual(panel.notice, "", "the old problem isn't shown again")
-                        done()
+            waitFor(function() { return panel.notice === "" }, 5000, "the line gone", function() {
+                ioslink.stop()
+                waitFor(function() { return !named("findPhone").available }, 5000, "ioslink gone", function() {
+                    check(ioslink.start(), "ioslink back")
+                    waitFor(function() { return named("findPhone").available }, 5000, "and the iPhone with it", function() {
+                        after(500, function() {
+                            expectEqual(panel.notice, "", "the old problem isn't shown again")
+                            done()
+                        })
                     })
                 })
             })

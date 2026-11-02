@@ -193,14 +193,19 @@ find_phone.md). Never a sound or a vibration on the watch: the button's light
 is the feedback.
 - **ioslink's FindPhone interface,** on its object on the session bus
   (`src/qml/quickpanel/FindPhone.qml`):
-  - `Ring()` and `Stop()`;
-  - `Ringing` and `Available`;
+  - `Ring()` and `Stop()`, which turn `Ringing` true or false at once, before
+    the iPhone answers; a tap that doesn't take puts it back, with `Problem`;
+  - `Ringing`, the button's light, which has no state of its own;
+  - `Available`;
   - `Problem`, shown for 3 s from `ProblemAt`, in Unix seconds, such as
     "Allow alarms in Sonic".
-- **A tap:** idle, it rings, and the button lights at once; while ringing, it
-  stops, and the button goes dark at once; then the button follows `Ringing`,
-  or goes dark after 5 s without an answer. Without the iPhone, it says
-  "Phone not connected" for 3 s, over the battery meter, and asks nothing.
+- **A tap:** idle, it rings; while ringing, it stops. Without the iPhone, it
+  says "Phone not connected" for 3 s, over the battery meter, and asks
+  nothing. A tap clears the last tap's line.
+- **A failed call** shows the line that `Problem` would: "Phone didn't
+  answer" for `org.freedesktop.DBus.Error.Failed`, ioslink busy, and for the
+  bus's `NoReply`; "Phone not connected" for `NotConnected` and the bus's
+  other errors, such as no ioslink.
 - **Its glyph** is `sonic/icons/find-phone.svg`, compiled in;
   `QuickPanelToggle` takes a picture of its own, `iconSource`.
 - **In the watch's settings:** the launcher's defaults put the button first,

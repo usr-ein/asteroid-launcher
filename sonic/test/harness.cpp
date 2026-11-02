@@ -144,45 +144,62 @@ public:
     bool m_available = false;
     QString m_problem;
     qlonglong m_problemAt = 0;
-    // The session just dropped: Available is still true, but a call fails.
-    bool m_refuse = false;
+    // How the call in progress ends, as the stand-in decides when it's
+    // called: an error, or no reply at all, for the caller's NoReply.
+    QString m_error;
+    QString m_errorMessage;
+    bool m_hang = false;
 
 signals:
     void ringCalled();
     void stopCalled();
 
 public slots:
-    // With no session, ioslink sends nothing and fails, after setting Problem.
     Q_SCRIPTABLE void Ring()
     {
         emit ringCalled();
-        if (!m_available || m_refuse)
-            sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone.NotConnected"),
-                           QStringLiteral("no session with Sonic"));
+        reply();
     }
     Q_SCRIPTABLE void Stop()
     {
         emit stopCalled();
-        if (!m_available)
-            sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone.NotConnected"),
-                           QStringLiteral("no session with Sonic"));
+        reply();
+    }
+
+private:
+    void reply()
+    {
+        if (m_hang)
+            setDelayedReply(true);
+        else if (!m_error.isEmpty())
+            sendErrorReply(m_error, m_errorMessage);
+        m_error.clear();
+        m_hang = false;
     }
 };
 
 // The stand-in for ioslink that a scene drives, as `ioslink`: it puts the
 // FindPhone interface on the test bus, or takes it off, and answers Ring()
-// and Stop() as PROTOCOL.md § 6.10 says ioslink does: Ringing at once, then
-// the app's answer, 300 ms later.
+// and Stop() as PROTOCOL.md § 6.10 says ioslink does. It has a connection of
+// its own, as ioslink is a process of its own: the launcher's calls go
+// through the bus, not QtDBus's shortcut for a service of the caller's own,
+// and its signals and replies come in the order it sends them. Ringing turns at once,
+// before the call returns; a tap that doesn't take puts it back 300 ms later,
+// with Problem set before ProblemAt. Without a session, Problem and then
+// NotConnected.
 class IoslinkStandIn : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool available READ available WRITE setAvailable)
     Q_PROPERTY(bool ringing READ ringing WRITE setRinging)
-    // The app's answer to a ring: "ring"; "denied" (CODE_DENIED);
-    // "unavailable" (CODE_UNAVAILABLE); "timeout", no answer; "notconnected",
-    // the session gone just before the tap; or "none", an ioslink that
-    // leaves Ringing alone.
+    // How a ring ends: "ring", it rings; "denied" (CODE_DENIED);
+    // "unavailable" (CODE_UNAVAILABLE); "timeout", no answer in time;
+    // "notconnected", the session gone just before the tap; "failed",
+    // org.freedesktop.DBus.Error.Failed, ioslink busy; or "hang", an ioslink
+    // that never replies, for the bus's NoReply.
     Q_PROPERTY(QString answer MEMBER m_answer)
+    // How a stop ends: "stop", it stops; or "timeout", it doesn't take.
+    Q_PROPERTY(QString stopAnswer MEMBER m_stopAnswer)
     Q_PROPERTY(int rings MEMBER m_rings)
     Q_PROPERTY(int stops MEMBER m_stops)
 
@@ -191,32 +208,28 @@ public:
     {
         connect(&m_object, &FindPhoneObject::ringCalled, this, [this] {
             ++m_rings;
-            m_object.m_refuse = m_answer == QLatin1String("notconnected");
-            if (!available() || m_object.m_refuse) {
-                setProblem(QStringLiteral("Phone not connected"));
-                return;
-            }
-            if (m_answer == QLatin1String("none"))
-                return;
-            setRinging(true);
-            const QString problem = m_answer == QLatin1String("denied") ? QStringLiteral("Allow alarms in Sonic")
-                : m_answer == QLatin1String("unavailable") ? QStringLiteral("Unlock your iPhone first")
-                : m_answer == QLatin1String("timeout") ? QStringLiteral("Phone didn't answer")
-                : QString();
-            if (!problem.isEmpty()) {
-                QTimer::singleShot(300, this, [this, problem] {
-                    setRinging(false);
-                    setProblem(problem);
-                });
+            if (!available() || m_answer == QLatin1String("notconnected")) {
+                notConnected();
+            } else if (m_answer == QLatin1String("failed")) {
+                setProblem(QStringLiteral("Phone didn't answer"));
+                m_object.m_error = QStringLiteral("org.freedesktop.DBus.Error.Failed");
+                m_object.m_errorMessage = QStringLiteral("ioslink is busy: the tap waited 20 s");
+            } else if (m_answer == QLatin1String("hang")) {
+                m_object.m_hang = true;
+            } else {
+                const QString problem = m_answer == QLatin1String("denied") ? QStringLiteral("Allow alarms in Sonic")
+                    : m_answer == QLatin1String("unavailable") ? QStringLiteral("Unlock your iPhone first")
+                    : m_answer == QLatin1String("timeout") ? QStringLiteral("Phone didn't answer")
+                    : QString();
+                tap(true, problem);
             }
         });
         connect(&m_object, &FindPhoneObject::stopCalled, this, [this] {
             ++m_stops;
-            if (!available()) {
-                setProblem(QStringLiteral("Phone not connected"));
-                return;
-            }
-            setRinging(false);
+            if (!available())
+                notConnected();
+            else
+                tap(false, m_stopAnswer == QLatin1String("timeout") ? QStringLiteral("Phone didn't answer") : QString());
         });
     }
 
@@ -232,6 +245,25 @@ public:
         m_object.m_ringing = ringing;
         changed(QStringLiteral("Ringing"), ringing);
     }
+    // A tap: Ringing at once, and back as it was, with the problem, if it
+    // doesn't take.
+    void tap(bool ring, const QString &problem)
+    {
+        const bool before = ringing();
+        setRinging(ring);
+        if (!problem.isEmpty()) {
+            QTimer::singleShot(300, this, [this, before, problem] {
+                setRinging(before);
+                setProblem(problem);
+            });
+        }
+    }
+    void notConnected()
+    {
+        setProblem(QStringLiteral("Phone not connected"));
+        m_object.m_error = QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone.NotConnected");
+        m_object.m_errorMessage = QStringLiteral("Phone not connected");
+    }
     void setProblem(const QString &problem)
     {
         m_object.m_problem = problem;
@@ -242,17 +274,15 @@ public:
 
     Q_INVOKABLE bool start()
     {
-        QDBusConnection bus = QDBusConnection::sessionBus();
-        return bus.registerObject(path, &m_object,
-                                  QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableProperties)
-            && bus.registerService(service);
+        return m_bus.registerObject(path, &m_object,
+                                    QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableProperties)
+            && m_bus.registerService(service);
     }
 
     Q_INVOKABLE void stop()
     {
-        QDBusConnection bus = QDBusConnection::sessionBus();
-        bus.unregisterService(service);
-        bus.unregisterObject(path);
+        m_bus.unregisterService(service);
+        m_bus.unregisterObject(path);
     }
 
 private:
@@ -261,13 +291,15 @@ private:
         QDBusMessage signal = QDBusMessage::createSignal(path, QStringLiteral("org.freedesktop.DBus.Properties"),
                                                          QStringLiteral("PropertiesChanged"));
         signal << QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone") << QVariantMap{{name, value}} << QStringList();
-        QDBusConnection::sessionBus().send(signal);
+        m_bus.send(signal);
     }
 
     const QString service = QStringLiteral("org.sonicscrewdriver.ioslink");
     const QString path = QStringLiteral("/org/sonicscrewdriver/ioslink");
+    QDBusConnection m_bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, QStringLiteral("ioslink"));
     FindPhoneObject m_object;
     QString m_answer = QStringLiteral("ring");
+    QString m_stopAnswer = QStringLiteral("stop");
     int m_rings = 0;
     int m_stops = 0;
 };
