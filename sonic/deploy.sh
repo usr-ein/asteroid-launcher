@@ -30,8 +30,16 @@ status='
 	[ -f /usr/local/lib/sonic-launcher/asteroid-launcher ] && echo "installed build: $(sha256sum /usr/local/lib/sonic-launcher/asteroid-launcher | cut -c1-12)"
 	true'
 # The stock launcher plays a sound from every notification view it creates, so
-# its start can fire one per stored notification at once. The speaker sink
-# stays muted until the launcher has settled; a wakelock keeps the watch awake.
+# its start can fire one per stored notification at once, and a crash loop
+# ends in the stock launcher: the wrapper falls back to it after 3 starts. So
+# the speaker sink stays muted until the launcher that should run ($expect,
+# set before) has run with the same pid for 20 s, with no fallback. If it
+# never does, the speaker stays muted, with a loud warning. A wakelock keeps
+# the watch awake meanwhile.
+# Between the stop and the start, the launcher's QML disk cache goes: Qt takes
+# a cached compiled file as current while its source's time matches, and
+# builds before resources were stamped from their contents all had the same
+# time, so a new build could run an older build's QML. The start recompiles.
 restart='
 	echo "sonic_deploy '"$wakelock_ns"'" > /sys/power/wake_lock
 	export PULSE_SERVER=unix:/run/user/1000/pulse/native PULSE_COOKIE=/home/ceres/.config/pulse/cookie
@@ -40,17 +48,52 @@ restart='
 	t0=$(date +%s)
 	rm -f /run/user/1000/sonic-launcher-starts /run/user/1000/sonic-launcher-fallback
 	'"$user_systemctl"' daemon-reload
-	'"$user_systemctl"' restart asteroid-launcher || true
-	i=0
-	until [ "$('"$user_systemctl"' is-active asteroid-launcher)" = active ] || [ $i -ge 40 ]; do sleep 1; i=$((i + 1)); done
-	sleep 8
-	[ "$was_muted" = 1 ] || pactl set-sink-mute speaker 0 2>/dev/null || true
+	'"$user_systemctl"' stop asteroid-launcher || true
+	rm -rf /home/ceres/.cache/System/qmlcache
+	'"$user_systemctl"' start asteroid-launcher || true
+	steady=0 last= pid= waited=0 settled=0 fell_back=0
+	while [ $waited -lt 150 ]; do
+		sleep 1
+		waited=$((waited + 1))
+		if [ -e /run/user/1000/sonic-launcher-fallback ]; then
+			fell_back=1
+			break
+		fi
+		pid=$('"$user_systemctl"' show -p MainPID --value asteroid-launcher 2>/dev/null || echo 0)
+		exe=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
+		if [ "$pid" != 0 ] && [ "$pid" = "$last" ] && [ "${exe% (deleted)}" = "$expect" ]; then
+			steady=$((steady + 1))
+			if [ $steady -ge 20 ]; then
+				settled=1
+				break
+			fi
+		else
+			steady=0
+		fi
+		last=$pid
+	done
+	if [ $settled = 1 ]; then
+		[ "$was_muted" = 1 ] || pactl set-sink-mute speaker 0 2>/dev/null || true
+		echo "$expect ran steadily for 20 s (pid $pid): the speaker is back as it was"
+	else
+		echo
+		echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+		if [ $fell_back = 1 ]; then
+			echo "!!! WARNING: the fork crash-looped, and the wrapper fell back to the stock launcher."
+		else
+			echo "!!! WARNING: $expect did not run steadily for 20 s within 150 s."
+		fi
+		echo "!!! The speaker stays MUTED. Once the launcher is right, unmute it by hand:"
+		echo "!!!   PULSE_SERVER=unix:/run/user/1000/pulse/native PULSE_COOKIE=/home/ceres/.config/pulse/cookie pactl set-sink-mute speaker 0"
+		echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+		echo
+	fi
 	echo sonic_deploy > /sys/power/wake_unlock
 	'"$status"'
 	echo "QML errors and warnings since the restart:"
 	journalctl -q -o cat --since "@$t0" _SYSTEMD_USER_UNIT=asteroid-launcher.service 2>/dev/null |
 		grep -E "qrc:|file:///|Error|error:|TypeError|ReferenceError" | head -n 20 | sed "s/^/  /"
-	true'
+	[ $settled = 1 ]'
 
 case "${1:-}" in
 --status)
@@ -59,6 +102,7 @@ case "${1:-}" in
 --stock)
 	ssh "$watch" "rm -f /etc/systemd/user/asteroid-launcher.service.d/sonic.conf
 		rmdir /etc/systemd/user/asteroid-launcher.service.d 2>/dev/null
+		expect=/usr/bin/asteroid-launcher
 		$restart"
 	;;
 "")
@@ -77,6 +121,7 @@ case "${1:-}" in
 		install -m 755 asteroid-launcher \$d/asteroid-launcher.new
 		mv \$d/asteroid-launcher.new \$d/asteroid-launcher
 		cd / && rm -rf /tmp/sonic-launcher
+		expect=\$d/asteroid-launcher
 		$restart"
 	;;
 *)
