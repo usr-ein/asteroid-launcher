@@ -209,14 +209,34 @@ mockup draws it (`src/qml/today/`).
 Two presses of the bottom button within 400 ms toggle the flashlight, from
 anywhere, with the display off too. A single press, and the top button, do
 what they did.
-- **The button:** on this watch, the PMIC's RESIN key, which sends
-  `KEY_VOLUMEDOWN` (114) from the same input device as the power key,
-  `qpnp_pon`. mce never grabs that device, as it also sends `KEY_POWER`.
+- **The button:** gpio-keys' `multi_function_key`, on GPIO 48 (the board's
+  `rover-keys.dtsi`), which sends `KEY_MENU` (139) from an input device of its
+  own, `gpio-keys`: `/dev/input/event2`, `root:system` 0660, and the launcher's
+  user, ceres, is in `system`. It wakes the watch from suspend.
+  - Not `KEY_VOLUMEDOWN` (114): that's the PMIC's RESIN key, on `qpnp_pon`
+    with the power key, and no physical button is wired to it. Its interrupt
+    count stays 0 while the bottom button's goes up with each press. The
+    first build of this feature waited for 114, and its double-click never
+    fired.
+  - No other device on the watch sends `KEY_MENU`: the touchscreen driver's
+    touch keys aren't built in.
+- **Its single press does nothing,** and still doesn't:
+  - nothing in the launcher, lipstick 2.1 or qml-asteroid handles `Key_Menu`;
+  - lipstick hands a key event to the app in front, as any key, and none
+    uses it;
+  - mce, by its heuristics, takes a device that sends only `KEY_MENU` for
+    "user activity": a press keeps the display on as a touch would, and mce
+    never grabs it.
 - **Read from the device:** `ButtonDoubleClick` (`src/buttondoubleclick.cpp`)
   reads `/dev/input/event*` itself, the devices that can send the key, as
   Qt's key events stop while the display is off: lipstick hides its window
-  then. It only reads and never grabs, and it times the presses by the
-  kernel's times of the events, so presses that wake the watch still count.
+  then. It only reads and never grabs, so lipstick's own reader of the device
+  carries on.
+- **Its clock:** it times the presses by the kernel's times of the events, on
+  the boot-time clock, so presses that wake the watch still count as they
+  were pressed. The watch can suspend again between two presses, and the
+  monotonic clock stops then: on it, presses seconds apart could look like a
+  double-click.
 - **The flashlight:** asteroid-flashlight, as the quick panel's button opens
   it (`src/qml/compositor/Flashlight.qml`).
   - On: the display on first when it's off, through mce's

@@ -23,10 +23,12 @@ class QSocketNotifier;
  * all. It only reads and never grabs a device, so the button's single press
  * keeps doing what it did, for the launcher, mce and the apps alike.
  *
- * - keyCode: the button's Linux key code (linux/input-event-codes.h).
+ * - keyCode: the button's Linux key code (linux/input-event-codes.h);
+ *   KEY_MENU by default, the watch's bottom button.
  * - interval: the longest time from the first press to the second, by the
- *   kernel's times of the events, so that presses that wake the watch, and
- *   reach the launcher late, still count as they were pressed.
+ *   kernel's times of the events on the boot-time clock, so that presses
+ *   that wake the watch, and reach the launcher late, still count as they
+ *   were pressed, and time in suspend counts too.
  * - devices: the event devices to read. Empty, the default: each
  *   /dev/input/event* that can send the key. Any other file is read as is,
  *   for the tests.

@@ -151,10 +151,13 @@ Item {
     }
 
     // The bottom button's double-click toggles the flashlight, from anywhere,
-    // with the display off too (Flashlight.qml). The bottom button is the
-    // PMIC's RESIN key, KEY_VOLUMEDOWN; its single press is left alone.
+    // with the display off too (Flashlight.qml). The bottom button is
+    // gpio-keys' multi_function_key, on GPIO 48: KEY_MENU, on its own input
+    // device, and it wakes the watch from suspend. Its single press is left
+    // alone: nothing in the launcher, lipstick or mce acts on KEY_MENU, beyond
+    // mce counting it as user activity.
     ButtonDoubleClick {
-        keyCode: 114 // KEY_VOLUMEDOWN
+        keyCode: 139 // KEY_MENU
         interval: 400
         onDoubleClicked: flashlight.toggle()
     }

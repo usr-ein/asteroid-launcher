@@ -30,7 +30,7 @@ bool testBit(const unsigned long *bits, int bit)
 
 ButtonDoubleClick::ButtonDoubleClick(QObject *parent)
     : QObject(parent)
-    , m_keyCode(KEY_VOLUMEDOWN)
+    , m_keyCode(KEY_MENU)
 {
 }
 
@@ -134,9 +134,12 @@ void ButtonDoubleClick::reopen()
                 ::close(fd);
                 continue;
             }
-            // The events' times on the monotonic clock, which a change of
-            // the time of day leaves alone.
-            int clock = CLOCK_MONOTONIC;
+            // The events' times on the boot-time clock: a change of the time
+            // of day leaves it alone, and it counts the time in suspend. The
+            // button wakes the watch, which can suspend again between two
+            // presses: on the monotonic clock, which stops then, presses
+            // seconds apart could look like a double-click.
+            int clock = CLOCK_BOOTTIME;
             ::ioctl(fd, EVIOCSCLOCKID, &clock);
         }
         auto *notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
