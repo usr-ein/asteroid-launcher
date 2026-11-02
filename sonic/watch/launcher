@@ -7,6 +7,13 @@
 # After 3 starts within 2 minutes (a crash loop), it starts the stock launcher
 # until the next deploy or reboot. systemd's own limit (5 starts in 10 s) would
 # leave the watch without any launcher, so this switch has to come first.
+#
+# The stock launcher starts silenced, however it comes to run here: a crash
+# loop, at boot or later, or no fork build. Its NotificationView plays
+# /usr/share/sounds/notification.wav through a QtMultimedia SoundEffect for
+# each notification it shows, whatever the profile: at its start, one per
+# stored notification, all at once. Only its own process is silenced: the
+# speaker isn't muted, since nothing here could safely unmute it later.
 ours=/usr/local/lib/sonic-launcher/asteroid-launcher
 stock=/usr/bin/asteroid-launcher
 state=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
@@ -24,4 +31,13 @@ fi
 if [ -x "$ours" ] && [ ! -e "$fallback" ]; then
 	exec "$ours" "$@"
 fi
+
+# The launcher's SoundEffect is a PulseAudio client of its own: with no server
+# to reach, it plays nothing, and doesn't retry. lipstick's volume control
+# reaches PulseAudio over D-Bus, and ngfd plays the profile's sounds from its
+# own process: neither changes. fakesink for anything that would play through
+# GStreamer's playbin. The apps it starts may inherit both, since invoker
+# passes its environment on: in this fallback, they're silent too.
+echo "sonic: the stock launcher runs, its own sounds silenced (PULSE_SERVER=unix:/dev/null)" >&2
+export PULSE_SERVER=unix:/dev/null QT_GSTREAMER_PLAYBIN_AUDIOSINK=fakesink
 exec "$stock" "$@"
