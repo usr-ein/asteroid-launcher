@@ -70,13 +70,48 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
   means a crash loop, it starts the stock launcher instead, until the next
   deploy or reboot. systemd would give up after 5 starts in 10 s and leave the
   watch with no launcher at all, so the wrapper switches first.
+- **The stock launcher starts silenced** whenever the wrapper runs it: after a
+  crash loop, at boot or any time later, with no deploy script around, or
+  with no fork build.
+  - **Its sound:** the stock binary's own QML has its NotificationView play
+    `/usr/share/sounds/notification.wav` through a QtMultimedia `SoundEffect`
+    for each notification it shows, whatever the profile.
+  - **`PULSE_SERVER=unix:/dev/null`:** `SoundEffect` is a PulseAudio client
+    of the launcher's own, which `QT_GSTREAMER_PLAYBIN_AUDIOSINK` doesn't
+    reach. So the wrapper gives the stock launcher no server to play on.
+    lipstick's volume control reaches PulseAudio over D-Bus, and ngfd plays
+    the profile's sounds from its own process, so neither changes. It sets
+    `QT_GSTREAMER_PLAYBIN_AUDIOSINK=fakesink` too, for anything that would
+    play through GStreamer's playbin.
+  - **Its own process only:** the speaker isn't muted. Nothing could safely
+    unmute it later: a reboot clears the fallback, with no deploy to follow,
+    and PulseAudio keeps a mute across reboots.
+  - **The apps it starts** may inherit `PULSE_SERVER`, since invoker passes
+    its environment on, and be silent too. That's acceptable in the fallback.
+  - `sonic/stock-silent-test.sh` checks the first against the SDK's
+    QtMultimedia, the watch's exact build, and a PulseAudio in a container:
+    a `SoundEffect` opens a stream as it is, still does with `fakesink`
+    alone, and opens none with `PULSE_SERVER=unix:/dev/null`.
 - A deploy restarts the launcher, which closes any open app. Then it shows the
   launcher's QML errors and warnings. Five `TypeError`s from `compositor.qml`
   at startup are normal: the stock launcher prints them too.
 - The speaker stays muted while the launcher restarts. The stock 2.1 launcher
   plays a sound from every notification view it creates, so its start fired
   one per stored notification at once. On 2026-10-31 that was 17 at the same
-  time.
+  time. A crash loop ends in that stock launcher, when the wrapper falls
+  back. So:
+  - the speaker comes back, as it was, only once the launcher that should run
+    (the fork's build, or the stock one for `--stock`) has run with the same
+    pid for 20 s, with no fallback;
+  - otherwise it stays muted, after up to 150 s, and the deploy fails with a
+    loud warning and the line to unmute it by hand.
+- **Between the stop and the start,** a deploy deletes the launcher's QML disk
+  cache, `~/.cache/System/qmlcache`. The start then recompiles all of it.
+  Builds before the resources were stamped from their contents all carried
+  the same time, so the cache let a new build run an older build's QML.
+
+  `sonic/deploy-test.sh` tests that, and the wrapper, in a container, with
+  stand-ins for `systemctl`, `pactl` and the launchers.
 
 To uninstall completely:
 1. Run `sonic/deploy.sh --stock`.
