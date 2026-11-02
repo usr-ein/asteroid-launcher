@@ -17,6 +17,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQuickView>
+#include <QTranslator>
 #include <QVariantMap>
 
 #include <cstdio>
@@ -86,8 +87,13 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "usage: %s <scene.qml>\n", argv[0]);
         return 64;
     }
-    // As the launcher's main.cpp.
+    // As the launcher's main.cpp and LauncherLocaleManager, with the
+    // translations that test.sh compiles.
     QGuiApplication::setFont(QFont(QStringLiteral("Noto Sans")));
+    QTranslator translator;
+    if (translator.load(QLocale(), QStringLiteral("asteroid-launcher"), QStringLiteral("."),
+                        QStringLiteral("/out/translations"), QStringLiteral(".qm")))
+        app.installTranslator(&translator);
     qmlRegisterType<AppLauncherBackground>("org.asteroid.launcher", 1, 0, "AppLauncherBackground");
     qmlRegisterType<AppLauncher>("org.asteroid.launcher", 1, 0, "AppLauncher");
     qmlRegisterType<AppListModel>("org.asteroid.launcher", 1, 0, "AppListModel");

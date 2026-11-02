@@ -52,14 +52,37 @@ printf '[Display]\nROUND = true\n\n[Capabilities]\nHAS_SPEAKER = true\nHAS_WLAN 
 mkdir -p /usr/share/icons/asteroid
 ln -s "$S"/usr/share/icons/asteroid/*.svg /usr/share/icons/asteroid/
 
+# Time zones, which Qt reads: the SDK's, as Alpine's minimal image has none.
+ln -s "$S/usr/share/zoneinfo" /usr/share/zoneinfo
+ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+export TZ=UTC
+
 export HOME=/home/ceres XDG_RUNTIME_DIR=/tmp/runtime
 mkdir -p "$HOME" "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
+
+# The weather that the Today screen shows: partly sunny, 12° and 7°, as the
+# weather app leaves it in dconf, compiled into the user's database.
+mkdir -p "$HOME/.config/dconf" /tmp/dconf-keys
+cat > /tmp/dconf-keys/weather <<-END
+	[org/asteroidos/weather]
+	timestamp-day0=$(date +%s)
+
+	[org/asteroidos/weather/day0]
+	id=801
+	min-temp=280
+	max-temp=285
+END
+arm "$S/usr/bin/dconf" compile "$HOME/.config/dconf/user" /tmp/dconf-keys
+
+# The Today scene's calendar: mkcal's database under HOME, with the busy day.
+export ARM="$S/lib/ld-linux-armhf.so.3 --library-path /stage/lib:$S/lib:$S/usr/lib"
+arm /out/seed-calendar busy
 arm "$S/usr/bin/dbus-daemon" --config-file=/src/sonic/test/dbus.conf --fork --nopidfile
 # The test bus stands in for the system bus too, where nothing answers.
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/test-bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=/tmp/test-bus
 
-export QT_QPA_PLATFORM=vnc:size=454x454 QT_QUICK_BACKEND=software
+export LANG=en_GB.UTF-8 QT_QPA_PLATFORM=vnc:size=454x454 QT_QUICK_BACKEND=software
 export QT_PLUGIN_PATH=$S/usr/lib/plugins QML2_IMPORT_PATH=/src/sonic/test/stubs:$S/usr/lib/qml
 export FONTCONFIG_FILE=/src/sonic/test/fonts.conf QT_LOGGING_RULES='qt.qpa.*=false'
 

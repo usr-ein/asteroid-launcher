@@ -2,8 +2,8 @@
 # Sonic Screwdriver: the launcher's QML off the watch, under emulation.
 #
 #   sonic/test/test.sh             every scene
-#   sonic/test/test.sh <scene>...  these scenes: applist, quickpanel, then preview,
-#                                  a sheet of the others' screenshots
+#   sonic/test/test.sh <scene>...  these scenes: applist, quickpanel, today, then
+#                                  preview, a sheet of the others' screenshots
 #
 # Each scene (sonic/test/<scene>.qml) runs the fork's own QML, compiled in as
 # in the launcher, in a 454 × 454 view: the watch's screen. It uses the SDK's
@@ -29,7 +29,7 @@ build_volume=${SONIC_BUILD_VOLUME:-sonic-asteroid-launcher-build}-test
 sdk_dir=/opt/asteroid-sdk
 stage=$cache/launcher-stage
 fonts=$cache/watch-fonts
-all_scenes="applist quickpanel preview"
+all_scenes="applist quickpanel today preview"
 
 # <local name> <path on the watch> <sha256>
 watch_libs="
@@ -95,7 +95,10 @@ docker run --rm --platform linux/amd64 -v "$sdk_volume:$sdk_dir:ro" -v "$build_v
 		-DLipstick_INCLUDE_DIRS="/stage/include/lipstick-qt5;/stage/include" \
 		-DLipstick_LIBRARIES=/stage/lib/liblipstick-qt5.so.1 >/dev/null
 	cmake --build /build -j"$(nproc)"
-	cp /build/launcher-test /out/launcher-test
+	cp /build/launcher-test /build/seed-calendar /out/
+	# The English the watch shows, from the translations that the qsTrId()s need.
+	mkdir -p /out/translations
+	"$bin/lrelease" -silent -idbased /src/i18n/asteroid-launcher.en_GB.ts -qm /out/translations/asteroid-launcher.en_GB.qm
 '
 
 log "running ${scenes[*]} under emulation"
