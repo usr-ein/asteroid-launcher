@@ -3,10 +3,13 @@
  *
  * The button scene of sonic/test/test.sh: the bottom button's double-click
  * and the flashlight it toggles.
- * - ButtonDoubleClick, the launcher's own, reads invented input events from a
- *   FIFO, as it reads the kernel's event devices on the watch: one press,
- *   two within and beyond 400 ms, three and four in a row, a held button,
- *   another key, and presses that arrive late, timed by their events.
+ * - ButtonDoubleClick, the launcher's own, with compositor.qml's own key
+ *   code, which must be the bottom button's: KEY_MENU (139), from gpio-keys.
+ *   It reads invented input events from a FIFO, as it reads the kernel's
+ *   event devices on the watch: one press, two within and beyond 400 ms,
+ *   three and four in a row, a held button, the power key, KEY_VOLUMEDOWN
+ *   (114, the PMIC's RESIN key, which has no button on this watch), and
+ *   presses that arrive late, timed by their events.
  * - Flashlight.qml, the launcher's own, with a stand-in for compositor.qml's
  *   windows (its window functions as they are) and processes of this
  *   container: the flashlight's window is the one whose process's command
@@ -24,8 +27,10 @@ Scene {
     id: desktop
 
     readonly property string fifo: "/tmp/sonic-button"
-    readonly property int keyVolumeDown: 114
+    // The bottom button: gpio-keys' KEY_MENU.
+    readonly property int keyMenu: 139
     readonly property int keyPower: 116
+    readonly property int keyVolumeDown: 114
     readonly property int evKey: 1
     readonly property int evSyn: 0
 
@@ -47,7 +52,7 @@ Scene {
 
     // A press and its release, as the kernel sends them, at msec.
     function press(msec, code) {
-        var key = code === undefined ? keyVolumeDown : code
+        var key = code === undefined ? keyMenu : code
         return [[msec, evKey, key, 1], [msec, evSyn, 0, 0],
                 [msec + 90, evKey, key, 0], [msec + 90, evSyn, 0, 0]]
     }
@@ -185,6 +190,10 @@ Scene {
     steps: [
         // The button.
         function(done) {
+            expectEqual(button.keyCode, keyMenu, "its default key: KEY_MENU, the bottom button")
+            var configured = sh("sed -n 's/.*keyCode: *\\([0-9][0-9]*\\).*/\\1/p' /src/src/qml/compositor/compositor.qml").output.trim()
+            expectEqual(configured, String(keyMenu), "compositor.qml's: KEY_MENU, the bottom button")
+            button.keyCode = parseInt(configured)
             expectEqual(button.openDevices, [], "no input device in the container: it opens none")
             check(sh("rm -f " + fifo + " && mkfifo " + fifo).status === 0, "make the FIFO")
             send([])
@@ -210,13 +219,17 @@ Scene {
                          "four in a row: two double-clicks", done)
         },
         function(done) {
-            expectClicks([[25000, evKey, keyVolumeDown, 1], [25150, evKey, keyVolumeDown, 2],
-                          [25300, evKey, keyVolumeDown, 2], [25350, evKey, keyVolumeDown, 0]], 0,
+            expectClicks([[25000, evKey, keyMenu, 1], [25150, evKey, keyMenu, 2],
+                          [25300, evKey, keyMenu, 2], [25350, evKey, keyMenu, 0]], 0,
                          "a held button's repeats don't count", done)
         },
         function(done) {
             expectClicks(press(29000, keyPower).concat(press(29200, keyPower)), 0,
                          "the power button doesn't count", done)
+        },
+        function(done) {
+            expectClicks(press(31000, keyVolumeDown).concat(press(31200, keyVolumeDown)), 0,
+                         "nor KEY_VOLUMEDOWN, the PMIC's RESIN key, which has no button here", done)
         },
         function(done) {
             // The events' own times count, not when they arrive: after a wake,
