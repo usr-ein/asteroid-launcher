@@ -28,7 +28,6 @@ status='
 	[ -f /etc/systemd/user/asteroid-launcher.service.d/sonic.conf ] && echo "drop-in: installed (fork enabled)" || echo "drop-in: none (stock launcher)"
 	[ -e /run/user/1000/sonic-launcher-fallback ] && echo "fallback: ACTIVE, the fork crash-looped; the stock launcher runs until the next deploy or reboot"
 	[ -f /usr/local/lib/sonic-launcher/asteroid-launcher ] && echo "installed build: $(sha256sum /usr/local/lib/sonic-launcher/asteroid-launcher | cut -c1-12)"
-	[ -f /home/ceres/.local/state/sonic-launcher-muted ] && echo "speaker: MUTED by the wrapper for the stock launcher (muted before: $(cat /home/ceres/.local/state/sonic-launcher-muted)); a deploy that runs steadily puts it back"
 	true'
 # The stock launcher plays a sound from every notification view it creates, so
 # its start can fire one per stored notification at once, and a crash loop
@@ -36,21 +35,22 @@ status='
 # the speaker sink stays muted until the launcher that should run ($expect,
 # set before) has run with the same pid for 20 s, with no fallback. If it
 # never does, the speaker stays muted, with a loud warning. A wakelock keeps
-# the watch awake meanwhile. The wrapper mutes the speaker too when it runs
-# the stock launcher, and says in $muted_by_wrapper what it was before: that's
-# what comes back.
+# the watch awake meanwhile.
+# Between the stop and the start, the launcher's QML disk cache goes: Qt takes
+# a cached compiled file as current while its source's time matches, and
+# builds before resources were stamped from their contents all had the same
+# time, so a new build could run an older build's QML. The start recompiles.
 restart='
 	echo "sonic_deploy '"$wakelock_ns"'" > /sys/power/wake_lock
 	export PULSE_SERVER=unix:/run/user/1000/pulse/native PULSE_COOKIE=/home/ceres/.config/pulse/cookie
 	case "$(pactl get-sink-mute speaker 2>/dev/null)" in *yes*) was_muted=1 ;; *) was_muted=0 ;; esac
-	muted_by_wrapper=/home/ceres/.local/state/sonic-launcher-muted
-	before_wrapper=$(cat $muted_by_wrapper 2>/dev/null || true)
-	case "$before_wrapper" in yes) was_muted=1 ;; no) was_muted=0 ;; esac
 	pactl set-sink-mute speaker 1 2>/dev/null || true
 	t0=$(date +%s)
 	rm -f /run/user/1000/sonic-launcher-starts /run/user/1000/sonic-launcher-fallback
 	'"$user_systemctl"' daemon-reload
-	'"$user_systemctl"' restart asteroid-launcher || true
+	'"$user_systemctl"' stop asteroid-launcher || true
+	rm -rf /home/ceres/.cache/System/qmlcache
+	'"$user_systemctl"' start asteroid-launcher || true
 	steady=0 last= pid= waited=0 settled=0 fell_back=0
 	while [ $waited -lt 150 ]; do
 		sleep 1
@@ -74,13 +74,7 @@ restart='
 	done
 	if [ $settled = 1 ]; then
 		[ "$was_muted" = 1 ] || pactl set-sink-mute speaker 0 2>/dev/null || true
-		rm -f $muted_by_wrapper
-		if [ "$before_wrapper" = unknown ]; then
-			echo "$expect ran steadily for 20 s (pid $pid). The speaker stays MUTED: the wrapper muted it for the stock launcher, and could not read it before. To unmute it:"
-			echo "  PULSE_SERVER=unix:/run/user/1000/pulse/native PULSE_COOKIE=/home/ceres/.config/pulse/cookie pactl set-sink-mute speaker 0"
-		else
-			echo "$expect ran steadily for 20 s (pid $pid): the speaker is back as it was"
-		fi
+		echo "$expect ran steadily for 20 s (pid $pid): the speaker is back as it was"
 	else
 		echo
 		echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"

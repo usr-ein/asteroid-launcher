@@ -76,10 +76,11 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
     the profile's sounds from its own process, so neither changes. It sets
     `QT_GSTREAMER_PLAYBIN_AUDIOSINK=fakesink` too, for anything that would
     play through GStreamer's playbin.
-  - **The speaker muted too,** if PulseAudio answers within 3 s, which it may
-    not at boot. What it was before goes in `~/.local/state/sonic-launcher-muted`:
-    the next deploy that runs steadily puts it back, and `--status` shows it
-    meanwhile.
+  - **Its own process only:** the speaker isn't muted. Nothing could safely
+    unmute it later: a reboot clears the fallback, with no deploy to follow,
+    and PulseAudio keeps a mute across reboots.
+  - **The apps it starts** may inherit `PULSE_SERVER`, since invoker passes
+    its environment on, and be silent too. That's acceptable in the fallback.
   - `sonic/stock-silent-test.sh` checks the first against the SDK's
     QtMultimedia, the watch's exact build, and a PulseAudio in a container:
     a `SoundEffect` opens a stream as it is, still does with `fakesink`
@@ -97,6 +98,10 @@ The stock `/usr/bin/asteroid-launcher` is never modified.
     pid for 20 s, with no fallback;
   - otherwise it stays muted, after up to 150 s, and the deploy fails with a
     loud warning and the line to unmute it by hand.
+- **Between the stop and the start,** a deploy deletes the launcher's QML disk
+  cache, `~/.cache/System/qmlcache`. The start then recompiles all of it.
+  Builds before the resources were stamped from their contents all carried
+  the same time, so the cache let a new build run an older build's QML.
 
   `sonic/deploy-test.sh` tests that, and the wrapper, in a container, with
   stand-ins for `systemctl`, `pactl` and the launchers.
