@@ -140,12 +140,6 @@ Item {
     ProfileControl { id: profileControl }
     DisplaySettings { id: displaySettings }
 
-    SoundEffect {
-        id: unmuteSound
-        source: "file:///usr/share/sounds/notification.wav"
-        volume: 0.8
-    }
-
     NetworkTechnology {
         id: wifiStatus
         path: "/net/connman/technology/wifi"
@@ -705,6 +699,16 @@ Item {
             }
 
             checked: !(preMuteLevel.value > 0 || volume === 0)
+
+            // Here, not at the panel's root: a SoundEffect opens its PulseAudio
+            // stream as soon as it's created, and keeps it, which wakes the
+            // speaker's amplifier. So it exists only while the sound toggle
+            // is in the panel.
+            SoundEffect {
+                id: unmuteSound
+                source: "file:///usr/share/sounds/notification.wav"
+                volume: 0.8
+            }
 
             Timer {
                 id: soundDelayTimer
