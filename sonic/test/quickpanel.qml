@@ -122,15 +122,14 @@ Scene {
         function(done) {
             ioslink.available = true
             waitFor(function() { return named("findPhone").available }, 5000, "the iPhone connected", function() {
-                ioslink.answer = "none"
+                ioslink.answer = "ring"
                 var button = named("findPhoneButton")
                 check(panel.notice === "Phone not connected", "the last tap's line still shows")
                 button.clicked(null)
                 check(button.checked, "a tap lights the button at once")
                 expectEqual(panel.notice, "", "and clears that line")
                 after(300, function() {
-                    check(ioslink.rings === 1, "and calls Ring()")
-                    ioslink.ringing = true
+                    check(ioslink.rings === 1 && ioslink.ringing, "and calls Ring(): ioslink's Ringing at once")
                     after(300, function() {
                         check(button.checked, "lit while the iPhone rings")
                         keep("quickpanel-ringing", "The iPhone rings: lit", function() {
@@ -164,11 +163,34 @@ Scene {
         function(done) {
             ioslink.answer = "denied"
             named("findPhoneButton").clicked(null)
-            after(400, function() {
+            waitFor(function() { return panel.notice !== "" }, 3000, "an answer", function() {
                 expectEqual(panel.notice, "Allow alarms in Sonic", "AlarmKit not allowed: \"Allow alarms in Sonic\"")
                 check(!named("findPhoneButton").checked, "and dark")
                 keep("quickpanel-denied", "Not allowed: \"Allow alarms in Sonic\"", done)
             })
+        },
+
+        // The other problems of PROTOCOL.md § 6.10, each in its turn.
+        function(done) {
+            var problems = [["unavailable", "Unlock your iPhone first"], ["timeout", "Phone didn't answer"],
+                            ["notconnected", "Phone not connected"]]
+            function one() {
+                if (problems.length === 0) {
+                    done()
+                    return
+                }
+                var p = problems.shift()
+                waitFor(function() { return panel.notice === "" }, 5000, "the line gone", function() {
+                    ioslink.answer = p[0]
+                    named("findPhoneButton").clicked(null)
+                    waitFor(function() { return panel.notice !== "" }, 3000, "an answer", function() {
+                        expectEqual(panel.notice, p[1], p[0] + ": \"" + p[1] + "\"")
+                        check(!named("findPhoneButton").checked, "and dark")
+                        one()
+                    })
+                })
+            }
+            one()
         },
 
         // No answer: dark again after 5 s.

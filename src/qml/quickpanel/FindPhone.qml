@@ -7,12 +7,15 @@
  * here. Never a sound or a vibration on the watch: the button's light is the
  * feedback.
  *
- * ioslink's FindPhone interface, on its object on the session bus:
- * - Ring() and Stop();
- * - Ringing: the iPhone rings;
- * - Available: the iPhone is connected and can ring;
- * - Problem, from ProblemAt in Unix seconds: a line to show for 3 s, such as
- *   "Allow alarms in Sonic".
+ * ioslink's FindPhone interface, on its object on the session bus (the
+ * bridge's PROTOCOL.md, § 6.10):
+ * - Ring() and Stop(), which return at once; with no session, they fail with
+ *   org.sonicscrewdriver.ioslink.FindPhone.NotConnected;
+ * - Ringing: the iPhone rings, as far as the watch knows;
+ * - Available: a session with Sonic that can ring;
+ * - Problem, from ProblemAt in Unix seconds: a line to show for 3 s: "Phone
+ *   not connected", "Allow alarms in Sonic", "Unlock your iPhone first" or
+ *   "Phone didn't answer".
  *
  * tap(): rings when idle, stops when ringing, and says "Phone not connected"
  * when the iPhone can't ring, without asking anything. The button lights at

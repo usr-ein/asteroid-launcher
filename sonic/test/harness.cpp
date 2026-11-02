@@ -11,7 +11,9 @@
 
 #include <QColor>
 #include <QDBusConnection>
+#include <QDBusContext>
 #include <QDBusMessage>
+#include <QTimer>
 #include <QDateTime>
 #include <QFile>
 #include <QFont>
@@ -122,9 +124,10 @@ private:
     QHash<QString, int> m_inputs;
 };
 
-// ioslink's FindPhone interface on the test bus, as the quick panel's Find
-// phone button reads it (src/qml/quickpanel/FindPhone.qml): what's exported.
-class FindPhoneObject : public QObject
+// ioslink's FindPhone interface on the test bus, as Sonic Screwdriver's
+// bridge PROTOCOL.md § 6.10 defines it and the quick panel's Find phone
+// button reads it (src/qml/quickpanel/FindPhone.qml): what's exported.
+class FindPhoneObject : public QObject, protected QDBusContext
 {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "org.sonicscrewdriver.ioslink.FindPhone")
@@ -143,25 +146,44 @@ public:
     bool m_available = false;
     QString m_problem;
     qlonglong m_problemAt = 0;
+    // The session just dropped: Available is still true, but a call fails.
+    bool m_refuse = false;
 
 signals:
     void ringCalled();
     void stopCalled();
 
 public slots:
-    Q_SCRIPTABLE void Ring() { emit ringCalled(); }
-    Q_SCRIPTABLE void Stop() { emit stopCalled(); }
+    // With no session, ioslink sends nothing and fails, after setting Problem.
+    Q_SCRIPTABLE void Ring()
+    {
+        emit ringCalled();
+        if (!m_available || m_refuse)
+            sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone.NotConnected"),
+                           QStringLiteral("no session with Sonic"));
+    }
+    Q_SCRIPTABLE void Stop()
+    {
+        emit stopCalled();
+        if (!m_available)
+            sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone.NotConnected"),
+                           QStringLiteral("no session with Sonic"));
+    }
 };
 
 // The stand-in for ioslink that a scene drives, as `ioslink`: it puts the
 // FindPhone interface on the test bus, or takes it off, and answers Ring()
-// and Stop() as told.
+// and Stop() as PROTOCOL.md § 6.10 says ioslink does: Ringing at once, then
+// the app's answer, 300 ms later.
 class IoslinkStandIn : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool available READ available WRITE setAvailable)
     Q_PROPERTY(bool ringing READ ringing WRITE setRinging)
-    // How Ring() is answered: "ring", "denied" (CODE_DENIED) or "none".
+    // The app's answer to a ring: "ring"; "denied" (CODE_DENIED);
+    // "unavailable" (CODE_UNAVAILABLE); "timeout", no answer; "notconnected",
+    // the session gone just before the tap; or "none", an ioslink that
+    // leaves Ringing alone.
     Q_PROPERTY(QString answer MEMBER m_answer)
     Q_PROPERTY(int rings MEMBER m_rings)
     Q_PROPERTY(int stops MEMBER m_stops)
@@ -171,13 +193,31 @@ public:
     {
         connect(&m_object, &FindPhoneObject::ringCalled, this, [this] {
             ++m_rings;
-            if (m_answer == QLatin1String("ring"))
-                setRinging(true);
-            else if (m_answer == QLatin1String("denied"))
-                setProblem(QStringLiteral("Allow alarms in Sonic"));
+            m_object.m_refuse = m_answer == QLatin1String("notconnected");
+            if (!available() || m_object.m_refuse) {
+                setProblem(QStringLiteral("Phone not connected"));
+                return;
+            }
+            if (m_answer == QLatin1String("none"))
+                return;
+            setRinging(true);
+            const QString problem = m_answer == QLatin1String("denied") ? QStringLiteral("Allow alarms in Sonic")
+                : m_answer == QLatin1String("unavailable") ? QStringLiteral("Unlock your iPhone first")
+                : m_answer == QLatin1String("timeout") ? QStringLiteral("Phone didn't answer")
+                : QString();
+            if (!problem.isEmpty()) {
+                QTimer::singleShot(300, this, [this, problem] {
+                    setRinging(false);
+                    setProblem(problem);
+                });
+            }
         });
         connect(&m_object, &FindPhoneObject::stopCalled, this, [this] {
             ++m_stops;
+            if (!available()) {
+                setProblem(QStringLiteral("Phone not connected"));
+                return;
+            }
             setRinging(false);
         });
     }
