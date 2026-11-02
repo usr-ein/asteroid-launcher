@@ -234,8 +234,18 @@ in the launcher, in a 454 × 454 view: the watch's screen.
   renderer.
 - **Another worktree** of the fork can build in Docker volumes of its own:
   `SONIC_BUILD_VOLUME=<name> sonic/test/test.sh`, also for `sonic/build.sh`.
-- **What it checks:** the scenes check what they show, then save screenshots
-  and contact sheets to `sonic/out/test/shots/`.
+- **What it checks:** first, that the launcher loads on the watch:
+  - `src/main.cpp` registers the launcher's QML types,
+    `registerLauncherTypes()`, before lipstick's `setCompositorPath()`, which
+    compiles `compositor.qml` at once;
+  - `load` compiles `compositor.qml` and `MainScreen.qml` as lipstick does,
+    with the launcher's types, the watch's own lipstick QML plugin and the
+    SDK's real plugins, so that a module or a type missing on the watch
+    fails here. It first compiles `compositor.qml` without the launcher's
+    types, which must fail as it did on the watch, to check the check.
+
+  Then the scenes check what they show, and save screenshots and contact
+  sheets to `sonic/out/test/shots/`.
   - `applist` checks the order, the hidden apps with `sonic/watch/hide-apps`
     itself, and that lipstick alone honours no override. It reads each logo
     back from the screenshots by its colours, and checks the names.
@@ -256,6 +266,6 @@ in the launcher, in a 454 × 454 view: the watch's screen.
   battery bar, which an opacity mask shapes, doesn't show in the screenshots.
   It does on the watch.
 - **What it needs from the watch:** two libraries that lipstick needs and the
-  SDK lacks, `libmce-qt5` and `libngf-qt5`, and the watch's Noto Sans for the
-  screenshots. They are copied once over SSH and checked against the SHA-256
+  SDK lacks, `libmce-qt5` and `libngf-qt5`, lipstick's QML plugin, and the
+  watch's Noto Sans for the screenshots. They are copied once over SSH and checked against the SHA-256
   in `test.sh`. Nothing runs on the watch.

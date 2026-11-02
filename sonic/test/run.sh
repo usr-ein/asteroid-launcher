@@ -93,13 +93,36 @@ export PATH="/tmp/bin:$PATH"
 arm "$S/usr/libexec/dconf-service" > /tmp/dconf-service.log 2>&1 &
 
 export LANG=en_GB.UTF-8 QT_QPA_PLATFORM=vnc:size=454x454 QT_QUICK_BACKEND=software
-export QT_PLUGIN_PATH=$S/usr/lib/plugins QML2_IMPORT_PATH=/src/sonic/test/stubs:$S/usr/lib/qml
+export QT_PLUGIN_PATH=$S/usr/lib/plugins
+export QML2_IMPORT_PATH=/src/sonic/test/stubs/missing:/src/sonic/test/stubs/services:$S/usr/lib/qml
 export FONTCONFIG_FILE=/src/sonic/test/fonts.conf QT_LOGGING_RULES='qt.qpa.*=false'
 
 status=0
 for scene in "$@"; do
 	echo "== $scene"
 	scene_status=0
+	if [ "$scene" = load ]; then
+		# The watch's own lipstick QML plugin, which the scenes don't load, and
+		# the SDK's real plugins where the scenes have stand-ins.
+		load() {
+			QML2_IMPORT_PATH=/stage/qml:/src/sonic/test/stubs/missing:$S/usr/lib/qml timeout 300 "$S/lib/ld-linux-armhf.so.3" \
+				--library-path "/stage/lib:$S/lib:$S/usr/lib:$S/usr/lib/pulseaudio" /out/launcher-test --load \
+				qrc:/qml/compositor.qml qrc:/qml/MainScreen.qml
+		}
+		# First the order that crashed the watch, which must fail as it did.
+		if SONIC_LOAD_BEFORE_REGISTERING=1 load > /out/load-unregistered.log 2>&1 ||
+			! grep -q 'module "org.asteroid.launcher" is not installed' /out/load-unregistered.log; then
+			cat /out/load-unregistered.log
+			echo "load: compositor.qml compiled before the launcher's types should fail, and didn't" >&2
+			scene_status=1
+		else
+			echo "ok   before the launcher's types are registered, compositor.qml fails as on the watch"
+		fi
+		load > /out/load.log 2>&1 || scene_status=1
+		cat /out/load.log
+		[ $scene_status = 0 ] || status=1
+		continue
+	fi
 	timeout 900 "$S/lib/ld-linux-armhf.so.3" --library-path "/stage/lib:$S/lib:$S/usr/lib" \
 		/out/launcher-test "/src/sonic/test/$scene.qml" > "/out/$scene.log" 2>&1 || scene_status=$?
 	grep -v -e '^QVncServer created' "/out/$scene.log" || true

@@ -7,6 +7,7 @@ set(SRC
 	applauncher.cpp
 	applistmodel.cpp
 	buttondoubleclick.cpp
+	launchertypes.cpp
 	notificationsnoozer.cpp)
 set(HEADERS
 	applauncherbackground.h
@@ -16,6 +17,7 @@ set(HEADERS
 	applauncher.h
 	applistmodel.h
 	buttondoubleclick.h
+	launchertypes.h
 	notificationsnoozer.h)
 
 add_executable(asteroid-launcher ${SRC} ${HEADERS} resources-qml.qrc)
