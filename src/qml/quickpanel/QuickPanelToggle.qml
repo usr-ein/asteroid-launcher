@@ -39,7 +39,7 @@ MouseArea {
     property alias icon: ic.name
     property bool checkable: false
     property bool checked: false
-    property color tint: "#222222"
+    property color tint: "#2b2f36"
 
     property bool rangeBased: false
     property int rangeMin: 0
@@ -93,11 +93,12 @@ MouseArea {
         }
     }
 
+    // On the dark theme's black, an unchecked toggle keeps a visible circle.
     Rectangle {
         anchors.fill: parent
         radius: width/2
         color: ma.tint
-        opacity: ma.pressed ? 0.6 : ma.checked ?  0.75 : (ma.checkable ? 0.2 : 1)
+        opacity: ma.pressed ? 0.6 : ma.checked ?  0.75 : (ma.checkable ? 0.5 : 1)
     }
 
     Icon {
@@ -106,7 +107,7 @@ MouseArea {
         height: width
         anchors.centerIn: parent
         color: ma.pressed ? "lightgrey" : "white"
-        opacity: ma.pressed ? 0.5 : ma.checked ? 1 : (ma.checkable ? 0.3 : 1)
+        opacity: ma.pressed ? 0.5 : ma.checked ? 1 : (ma.checkable ? 0.4 : 1)
     }
 }
 

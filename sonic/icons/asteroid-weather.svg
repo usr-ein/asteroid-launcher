@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Weather: a blue sky with a sun and a cloud. Sonic Screwdriver's launcher icons, sonic/icons/. -->
+  <circle cx="128" cy="128" r="124" fill="#1460c8"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#64a8ff" stroke-opacity="0.45" stroke-width="3"/>
+  <g stroke="#ffd60a" stroke-width="10" stroke-linecap="round">
+    <path d="M154 46 L154 58 M154 138 L154 150 M102 98 L114 98 M194 98 L206 98"/>
+    <path d="M117.2 61.2 L125.7 69.7 M182.3 126.3 L190.8 134.8 M117.2 134.8 L125.7 126.3 M182.3 69.7 L190.8 61.2"/>
+  </g>
+  <circle cx="154" cy="98" r="30" fill="#ffd60a"/>
+  <circle cx="98" cy="146" r="32" fill="#f4f7fb"/>
+  <circle cx="140" cy="134" r="40" fill="#f4f7fb"/>
+  <rect x="58" y="146" width="140" height="48" rx="24" fill="#f4f7fb"/>
+  <path d="M82 194 L174 194 A24 24 0 0 0 196 180 L60 180 A24 24 0 0 0 82 194 Z" fill="#d4dfec"/>
+</svg>

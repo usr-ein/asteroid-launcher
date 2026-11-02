@@ -5,6 +5,7 @@
 #include "applistmodel.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QQmlEngine>
 #include <QStandardPaths>
@@ -84,6 +85,29 @@ void AppListModel::setSourceModel(QAbstractItemModel *model)
     else
         invalidate();
     checkItemCount();
+}
+
+QHash<int, QByteArray> AppListModel::roleNames() const
+{
+    QHash<int, QByteArray> roles = QSortFilterProxyModel::roleNames();
+    roles.insert(LogoRole, QByteArrayLiteral("logo"));
+    return roles;
+}
+
+QVariant AppListModel::data(const QModelIndex &index, int role) const
+{
+    if (role != LogoRole)
+        return QSortFilterProxyModel::data(index, role);
+    const QObject *item = sourceItem(mapToSource(index).row());
+    return item ? logoUrl(item->property("filePath").toString()) : QString();
+}
+
+QString AppListModel::logoUrl(const QString &filePath)
+{
+    const QString id = desktopFileId(filePath);
+    if (id.isEmpty() || !QFile::exists(QStringLiteral(":/sonic/icons/") + id + QStringLiteral(".svg")))
+        return QString();
+    return QStringLiteral("qrc:/sonic/icons/") + id + QStringLiteral(".svg");
 }
 
 QStringList AppListModel::order() const

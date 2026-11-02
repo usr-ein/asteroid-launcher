@@ -9,8 +9,10 @@
  * the exit status.
  */
 
+#include <QColor>
 #include <QFont>
 #include <QGuiApplication>
+#include <QImage>
 #include <QProcess>
 #include <QQmlContext>
 #include <QQmlEngine>
@@ -21,6 +23,7 @@
 
 #include <launchermodel.h>
 
+#include "applauncher.h"
 #include "applauncherbackground.h"
 #include "applistmodel.h"
 
@@ -39,6 +42,29 @@ public:
         const int status = process.exitStatus() == QProcess::NormalExit ? process.exitCode() : -1;
         return {{QStringLiteral("status"), status},
                 {QStringLiteral("output"), QString::fromUtf8(process.readAll())}};
+    }
+
+    // The share of a screenshot's pixels, in a rectangle, within `tolerance`
+    // of a colour on each of red, green and blue: 0 to 1, or -1 when the file
+    // can't be read.
+    Q_INVOKABLE double share(const QString &file, int x, int y, int width, int height,
+                             const QString &colour, int tolerance)
+    {
+        const QImage image(file);
+        if (image.isNull())
+            return -1;
+        const QColor want(colour);
+        const QRect area = QRect(x, y, width, height).intersected(image.rect());
+        int matching = 0;
+        for (int py = area.top(); py <= area.bottom(); ++py) {
+            for (int px = area.left(); px <= area.right(); ++px) {
+                const QColor got = image.pixelColor(px, py);
+                if (qAbs(got.red() - want.red()) <= tolerance && qAbs(got.green() - want.green()) <= tolerance
+                        && qAbs(got.blue() - want.blue()) <= tolerance)
+                    ++matching;
+            }
+        }
+        return area.isEmpty() ? 0 : double(matching) / (area.width() * area.height());
     }
 
     Q_INVOKABLE void log(const QString &line)
@@ -63,6 +89,7 @@ int main(int argc, char **argv)
     // As the launcher's main.cpp.
     QGuiApplication::setFont(QFont(QStringLiteral("Noto Sans")));
     qmlRegisterType<AppLauncherBackground>("org.asteroid.launcher", 1, 0, "AppLauncherBackground");
+    qmlRegisterType<AppLauncher>("org.asteroid.launcher", 1, 0, "AppLauncher");
     qmlRegisterType<AppListModel>("org.asteroid.launcher", 1, 0, "AppListModel");
     qmlRegisterAnonymousType<QAbstractItemModel>("org.asteroid.launcher", 1);
     // lipstick's QML plugin isn't in the SDK; its library is the watch's own.

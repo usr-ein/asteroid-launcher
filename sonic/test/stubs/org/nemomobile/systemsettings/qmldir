@@ -1,0 +1,3 @@
+module org.nemomobile.systemsettings
+ProfileControl 1.0 ProfileControl.qml
+DisplaySettings 1.0 DisplaySettings.qml

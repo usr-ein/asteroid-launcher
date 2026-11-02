@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Diamonds: a purple gem. Sonic Screwdriver's launcher icons, sonic/icons/. -->
+  <circle cx="128" cy="128" r="124" fill="#22102d"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#bf5af2" stroke-opacity="0.3" stroke-width="3"/>
+  <path d="M90 66 L166 66 L202 106 L54 106 Z" fill="#d68cff"/>
+  <path d="M106 66 L150 66 L162 106 L94 106 Z" fill="#e8b8ff"/>
+  <path d="M54 106 L202 106 L128 204 Z" fill="#bf5af2"/>
+  <path d="M94 106 L162 106 L128 204 Z" fill="#a447d6"/>
+  <path d="M54 106 L94 106 L128 204 Z" fill="#8a35bb"/>
+  <path d="M90 66 L54 106 L94 106 L106 66 Z" fill="#c172ee"/>
+  <path d="M188 46 L192 58 L204 62 L192 66 L188 78 L184 66 L172 62 L184 58 Z" fill="#ffffff"/>
+</svg>

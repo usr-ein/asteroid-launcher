@@ -12,7 +12,10 @@
  *     each seen by the list at once, and an override it didn't write left
  *     alone;
  *   - that the list goes back to its first app once left for the watch face,
- *     and keeps its page when brought back at once.
+ *     and keeps its page when brought back at once;
+ *   - the look: each of the eight apps shows its own logo (sonic/icons/), read
+ *     back from the screenshot by its colours, any other app the stock
+ *     drawing in the dark theme's grey, and the names in sentence case.
  * Screenshots: each page, with every app and with the four hidden, and a
  * contact sheet of each.
  */
@@ -75,6 +78,25 @@ Scene {
         "Check-in", "Alarm Clock", "Heart Rate", "Timer", "Stopwatch", "Weather",
         "Flashlight", "Diamonds", "Agenda", "Calculator", "Music", "Settings"
     ]
+    readonly property var everyName: [
+        "Check-in", "Alarm clock", "Heart rate", "Timer", "Stopwatch", "Weather",
+        "Flashlight", "Diamonds", "Agenda", "Calculator", "Music", "Settings"
+    ]
+    // Each logo's main colours, which its page must show; the stock drawing's
+    // grey for the apps without one.
+    readonly property var logoColours: {
+        "sonic-checkin": ["#2fd3b8"],
+        "asteroid-alarmclock": ["#ff9f0a"],
+        "asteroid-hrm": ["#ff453a"],
+        "asteroid-timer": ["#ffd60a"],
+        "asteroid-stopwatch": ["#30d158"],
+        "asteroid-weather": ["#1460c8"],
+        "asteroid-flashlight": ["#2a2d33"],
+        // the gem's facets
+        "asteroid-diamonds": ["#bf5af2", "#a447d6", "#8a35bb", "#d68cff", "#e8b8ff", "#c172ee"]
+    }
+    readonly property var stockGrey: ["#262a31"]
+    readonly property int logoRole: 256 + 64  // AppListModel::LogoRole, Qt::UserRole + 64
     readonly property string hideApps: "sh /src/sonic/watch/hide-apps"
     readonly property string userApps: "/home/ceres/.local/share/applications"
 
@@ -101,13 +123,31 @@ Scene {
         return null
     }
 
-    // Every page of the list, then their contact sheet.
+    function desktopId(row) {
+        var path = launcherModel.get(row).filePath
+        return path.substring(path.lastIndexOf("/") + 1).replace(/\.desktop$/, "")
+    }
+
+    // The name a page shows, from its delegate's label.
+    function shownName(view) {
+        var page = view.itemAt(view.contentX + view.width / 2, view.height / 2)
+        for (var i = 0; page && i < page.children.length; i++) {
+            if (page.children[i].text !== undefined)
+                return page.children[i].text
+        }
+        return null
+    }
+
+    // Every page of the list, then their contact sheet. Each page's logo is
+    // read back from its screenshot: its main colour, or the stock grey,
+    // covers a good part of the logo's middle.
     function pages(prefix, title, done) {
         var view = listView()
-        var files = [], labels = []
+        var files = [], labels = [], names = []
         var page = 0
         function one() {
             if (page === launcherModel.itemCount) {
+                expectEqual(names, everyName.slice(0, names.length), prefix + ": the names, in sentence case")
                 view.contentX = 0
                 sheet.title = title
                 sheet.files = files
@@ -118,9 +158,21 @@ Scene {
             view.contentX = page * view.width
             after(250, function() {
                 var name = prefix + "-" + (page < 9 ? "0" : "") + (page + 1)
-                files.push(shots + "/" + name + ".png")
+                var file = shots + "/" + name + ".png"
+                files.push(file)
                 labels.push((page + 1) + ". " + launcherModel.get(page).title)
-                shot(name, function() { page++; one() })
+                names.push(shownName(view))
+                shot(name, function() {
+                    var id = desktopId(page)
+                    var colours = logoColours[id] || stockGrey
+                    var share = 0
+                    for (var c = 0; c < colours.length; c++)
+                        share += test.share(file, 100, 80, 254, 254, colours[c], 12)
+                    check(share > 0.04, name + ": " + (logoColours[id] ? "the logo of " + id : "the stock drawing")
+                          + " shows, " + colours.join(" ") + " on " + Math.round(share * 100) + " % of its middle")
+                    page++
+                    one()
+                })
             })
         }
         one()
@@ -132,9 +184,19 @@ Scene {
             expectEqual(titles(launcherModel), everyApp, "the order: Check-in, the PRD's apps, then the others by title")
             check(allApps.itemCount === 12, "lipstick lists the 12 apps; sonic-health has NoDisplay=true")
             expectEqual(launcherModel.hiddenApps, [], "no override yet")
+            var logos = []
+            for (var i = 0; i < launcherModel.itemCount; i++)
+                logos.push(launcherModel.data(launcherModel.index(i, 0), logoRole))
+            expectEqual(logos, [
+                "qrc:/sonic/icons/sonic-checkin.svg", "qrc:/sonic/icons/asteroid-alarmclock.svg",
+                "qrc:/sonic/icons/asteroid-hrm.svg", "qrc:/sonic/icons/asteroid-timer.svg",
+                "qrc:/sonic/icons/asteroid-stopwatch.svg", "qrc:/sonic/icons/asteroid-weather.svg",
+                "qrc:/sonic/icons/asteroid-flashlight.svg", "qrc:/sonic/icons/asteroid-diamonds.svg",
+                "", "", "", ""
+            ], "the logo role: the eight apps' own logos, none for the others")
             done()
         },
-        function(done) { pages("applist-all", "The app list, every app: Check-in first", done) },
+        function(done) { pages("applist-all", "The app list, every app: Check-in first; the last four have no logo of their own", done) },
 
         // lipstick ignores an override in ~/.local/share/applications; AppListModel doesn't.
         function(done) {

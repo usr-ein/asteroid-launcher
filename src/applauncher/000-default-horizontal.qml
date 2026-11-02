@@ -32,7 +32,6 @@
  */
 
 import QtQuick 2.9
-import QtGraphicalEffects 1.12
 import org.asteroid.controls 1.0
 
 Item {
@@ -40,6 +39,19 @@ Item {
     property alias count: appsListView.count
     property real tutorialScroll:  0.0
     property bool fakePressed: false
+
+    // "Alarm Clock" to "Alarm clock": each word after the first that is only
+    // capitalised goes lower case. An acronym, such as "GPS", stays.
+    function sentenceCase(title) {
+        var words = title.split(" ")
+        for (var i = 1; i < words.length; i++) {
+            var word = words[i]
+            if (word.length > 1 && word.charAt(0) !== word.charAt(0).toLowerCase()
+                    && word.slice(1) === word.slice(1).toLowerCase())
+                words[i] = word.toLowerCase()
+        }
+        return words.join(" ")
+    }
 
     anchors.fill: parent
     ListView {
@@ -91,72 +103,71 @@ Item {
         delegate: MouseArea {
             id: launcherItem
 
+            readonly property bool down: launcherItem.pressed || fakePressed
+
             width: appsListView.width > appsListView.height ? appsListView.height : appsListView.width
             height: width
             enabled: !appsListView.dragging
 
             onClicked: model.object.launchApplication()
 
-            DropShadow {
-                anchors.fill: circleWrapper
-                horizontalOffset: 0
-                verticalOffset: 0
-                radius: 8.0
-                samples: 17
-                color: "#66000000"
-                source: circleWrapper
-                cached: true
-            }
-
+            // The app's logo, the size of the stock icon circle, and its name
+            // under it, centred together on the page.
             Item {
-                id: circleWrapper
+                id: badge
 
-                anchors.fill: parent
-
-                Rectangle {
-                    id: circle
-
-                    anchors.centerIn: parent
-                    width: parent.width * .65
-                    height: width
-                    radius: width/2
-                    color: launcherItem.pressed | fakePressed ? "#dddddd" : "#f8f8f8"
-                    opacity: launcherItem.pressed | fakePressed ? .6 : 1
-
-                    Behavior on opacity { NumberAnimation { duration: 100 } }
-                }
-            }
-
-            Icon {
-                id: icon
-
-                name: model.object.iconId === "" ? "ios-help" : model.object.iconId
-                anchors {
-                    centerIn: parent
-                    verticalCenterOffset: -parent.height * 0.03
-                }
-                width: parent.width * .30
+                width: launcherItem.width * .65
                 height: width
-                color: launcherItem.pressed | fakePressed ? "#333" : "#666"
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: (launcherItem.height - height - iconText.anchors.topMargin - iconText.height) / 2
+                scale: launcherItem.down ? .94 : 1
+                opacity: launcherItem.down ? .7 : 1
+
+                Behavior on scale { NumberAnimation { duration: 100 } }
+                Behavior on opacity { NumberAnimation { duration: 100 } }
+
+                // Sonic's own logo, compiled in from sonic/icons/.
+                Image {
+                    anchors.fill: parent
+                    visible: model.logo !== ""
+                    source: model.logo
+                    sourceSize.width: width
+                    sourceSize.height: height
+                }
+
+                // Any other app: the stock drawing, its icon on a circle, in
+                // the dark theme's greys.
+                Rectangle {
+                    anchors.fill: parent
+                    visible: model.logo === ""
+                    radius: width / 2
+                    color: "#262a31"
+
+                    Icon {
+                        anchors.centerIn: parent
+                        width: parent.width * .46
+                        height: width
+                        name: model.object.iconId === "" ? "ios-help" : model.object.iconId
+                        color: "#d5dae1"
+                    }
+                }
             }
 
             Label {
                 id: iconText
 
-                text: model.object.title.toUpperCase() + localeManager.changesObserver
+                text: sentenceCase(model.object.title) + localeManager.changesObserver
                 anchors {
-                    top: icon.bottom
-                    topMargin: parent.height * 0.024
+                    top: badge.bottom
+                    topMargin: launcherItem.height * .03
                     horizontalCenter: parent.horizontalCenter
                 }
-                width: parent.width * 0.5
+                width: parent.width * .7
                 horizontalAlignment: Text.AlignHCenter
-                color: launcherItem.pressed | fakePressed ? "#333" : "#666"
+                color: launcherItem.down ? "#8a929e" : "#c9cfd8"
                 font {
-                    pixelSize: ((appsListView.width > appsListView.height ?
-                                    appsListView.height :
-                                    appsListView.width) / Dims.l(100)) * Dims.l(5)
-                    styleName: "SemiBold"
+                    pixelSize: launcherItem.height * .044
+                    styleName: "Medium"
                 }
             }
         }

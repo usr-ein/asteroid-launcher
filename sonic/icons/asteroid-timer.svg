@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Timer: a yellow hourglass. Sonic Screwdriver's launcher icons, sonic/icons/. -->
+  <circle cx="128" cy="128" r="124" fill="#2a2306"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#ffd60a" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M84 64 C84 106 116 116 116 128 C116 140 84 150 84 192 L172 192 C172 150 140 140 140 128 C140 116 172 106 172 64 Z" fill="#fff6c8" fill-opacity="0.18" stroke="#ffd60a" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M100 92 C106 108 122 114 124 124 L132 124 C134 114 150 108 156 92 Z" fill="#ffd60a"/>
+  <path d="M128 124 L128 160" stroke="#ffd60a" stroke-width="5" stroke-linecap="round"/>
+  <path d="M94 188 C98 168 118 164 128 154 C138 164 158 168 162 188 Z" fill="#ffd60a"/>
+  <rect x="68" y="46" width="120" height="20" rx="9" fill="#e6a800"/>
+  <rect x="68" y="190" width="120" height="20" rx="9" fill="#e6a800"/>
+</svg>

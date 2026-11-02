@@ -15,6 +15,7 @@ find_package(Mlite5 REQUIRED)
 
 add_executable(launcher-test
 	harness.cpp
+	${launcher}/applauncher.cpp
 	${launcher}/applistmodel.cpp
 	${launcher}/applauncherbackground.cpp
 	${launcher}/resources-qml.qrc)

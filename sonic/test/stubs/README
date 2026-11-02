@@ -1,0 +1,4 @@
+Stand-ins for the QML modules that the SDK lacks, or whose real plugins would
+reach for the watch's services (MCE, profiled, connman, PulseAudio): just the
+types and properties that the launcher's QML uses, with invented values.
+sonic/test/run.sh puts this directory first in the QML import path.
