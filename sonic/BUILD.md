@@ -300,7 +300,8 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     reads stood in for by `sonic/test/stubs/`. Its Find phone button runs
     against a stand-in for ioslink's FindPhone interface on the test bus, in
     the harness, and `sonic/watch/quickpanel-findphone` against the SDK's own
-    dconf service.
+    dconf service. The sound toggle's unmute sound, a `SoundEffect` that opens
+    an audio stream as soon as it exists, is there only with the toggle.
   - `today` runs the Today screen with the SDK's real AgendaModel over mkcal.
     `seed-calendar.cpp` fills four coloured notebooks with the mockup's
     sample days, invented, and changes them under the open screen.

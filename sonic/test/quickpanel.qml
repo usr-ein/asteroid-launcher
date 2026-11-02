@@ -19,6 +19,10 @@
  *   with the watch's settings, which list the toggles, the button isn't
  *   there; the script puts it first, --status shows it, --undo takes it out,
  *   and the panel follows each change.
+ * - The sound toggle's unmute sound, a SoundEffect, which opens an audio
+ *   stream as soon as it's created: none with the watch's settings, which
+ *   don't have the toggle; one with the toggle in the sliding row, and none
+ *   again without it.
  * Screenshots: the panel; "Phone not connected"; ringing; "Allow alarms in
  * Sonic"; the bell on outdoors; and a contact sheet of them.
  */
@@ -82,6 +86,21 @@ Scene {
 
     function slidingRow() {
         return find(panel, function(item) { return item.orientation === ListView.Horizontal && item.interactive === true })
+    }
+
+    // The SoundEffects in the panel, visual items' or not.
+    function soundEffects() {
+        var found = []
+        function walk(o) {
+            if (String(o).indexOf("SoundEffect") !== -1)
+                found.push(o)
+            var lists = [o.resources, o.children]
+            for (var l = 0; l < lists.length; l++)
+                for (var i = 0; lists[l] !== undefined && i < lists[l].length; i++)
+                    walk(lists[l][i])
+        }
+        walk(panel)
+        return found
     }
 
     function bell() {
@@ -328,6 +347,21 @@ Scene {
                         + "<'cinemaToggle'>, <'aodToggle'>, <'powerOffToggle'>, <'rebootToggle'>, <'musicButton'>, "
                         + "<'flashlightButton'>]", "as it was")
             waitFor(function() { return named("findPhoneButton") === null }, 5000, "and the panel follows", done)
+        },
+
+        // The unmute sound, only where the sound toggle is.
+        function(done) {
+            expectEqual(soundEffects().length, 0, "the watch's settings, without the sound toggle: no SoundEffect")
+            check(sh("dconf write /desktop/asteroid/quickpanel/slider \"['soundToggle', 'brightnessToggle', 'bluetoothToggle']\"").status === 0,
+                  "the sound toggle first in the sliding row")
+            waitFor(function() { return soundEffects().length === 1 }, 5000, "with it, one SoundEffect", function() {
+                var effect = soundEffects()[0]
+                expectEqual(String(effect.source), "file:///usr/share/sounds/notification.wav", "the unmute sound, as it was")
+                expectEqual(effect.volume, 0.8, "at 0.8")
+                check(sh("dconf load /desktop/asteroid/quickpanel/ < /src/sonic/test/quickpanel-user.ini").status === 0,
+                      "the watch's settings again")
+                waitFor(function() { return soundEffects().length === 0 }, 5000, "and none again", done)
+            })
         },
 
         function(done) {
