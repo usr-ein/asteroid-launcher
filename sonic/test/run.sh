@@ -37,6 +37,7 @@ done <<-END
 	asteroid-timer|Timer|ios-timer-outline|#A6005F|#0C0003
 	asteroid-weather|Weather|ios-cloudy-outline|#990019|#0C0200
 	sonic-checkin|Check-in|ios-happy-outline|#11868F|#021314
+	sonic-weather|Weather|ios-cloudy-outline|#990019|#0C0200
 END
 # Check-in's second entry, hidden by its own NoDisplay=true.
 printf '[Desktop Entry]\nType=Application\nName=Check-in\nIcon=ios-happy-outline\nExec=sonic-checkin\nNoDisplay=true\n' \

@@ -6,6 +6,9 @@
  * this order, then the others by title. An override hides an app: a .desktop
  * file of the same name with NoDisplay=true in /usr/local/share/applications
  * (sonic/hide-apps.sh writes them) or ~/.local/share/applications.
+ *
+ * Weather is Sonic Screwdriver's own, sonic-weather; the stock
+ * asteroid-weather, which hide-apps hides, would follow the others by title.
  */
 
 import org.nemomobile.lipstick 0.1
@@ -19,7 +22,7 @@ AppListModel {
         "asteroid-hrm",
         "asteroid-timer",
         "asteroid-stopwatch",
-        "asteroid-weather",
+        "sonic-weather",
         "asteroid-flashlight",
         "asteroid-diamonds"
     ]

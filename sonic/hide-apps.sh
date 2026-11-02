@@ -2,7 +2,7 @@
 # Sonic Screwdriver: hide apps from the watch's app list, without uninstalling
 # them.
 #
-#   sonic/hide-apps.sh                  hide Music, Calculator, Agenda and Settings
+#   sonic/hide-apps.sh                  hide Music, Calculator, Agenda, Settings and the stock Weather
 #   sonic/hide-apps.sh <id>...          hide these apps, by desktop file ID (asteroid-music)
 #   sonic/hide-apps.sh --show <id>...   show these apps again
 #   sonic/hide-apps.sh --undo           show again every app that this script hid

@@ -122,6 +122,9 @@ To uninstall completely:
 - **Order:** `src/qml/misc/AppList.qml` lists the apps that come first, by
   desktop file ID: Check-in, Alarm clock, Heart rate, Timer, Stopwatch,
   Weather, Flashlight, Diamonds. Every other app follows, by title.
+- **Weather is Sonic Screwdriver's own,** `sonic-weather` (the main repo's
+  `weather/`), fed by the iPhone through ioslink. The stock `asteroid-weather`
+  is hidden with the others; shown again, it would follow them by title.
 - **The list opens on Check-in:** once it has been left for the watch face, by
   a swipe, an app closing or the display going off, it goes back to its first
   app. Coming back from a minimised app keeps the page.
@@ -137,7 +140,8 @@ To uninstall completely:
   the binary: Check-in, Alarm clock, Heart rate, Timer, Stopwatch, Weather,
   Flashlight and Diamonds. They are original drawings in one style: a disc of
   the app's colour, darkened, with a flat, rounded, full-colour symbol on it.
-  Weather's disc is a blue sky, Flashlight's a dark grey. Qt draws them with
+  Weather's disc is a blue sky, Flashlight's a dark grey; `sonic-weather.svg`
+  is an alias of `asteroid-weather.svg`, so both Weathers wear it. Qt draws them with
   its SVG Tiny renderer, so they use no clip paths, masks, filters or CSS.
 - **The list:** each page shows the app's logo, the size of the stock icon
   circle, with its name under it, smaller and in sentence case ("Alarm
@@ -155,7 +159,7 @@ To uninstall completely:
 ### Hiding apps
 
 ```sh
-sonic/hide-apps.sh                  # hide Music, Calculator, Agenda and Settings
+sonic/hide-apps.sh                  # hide Music, Calculator, Agenda, Settings and the stock Weather
 sonic/hide-apps.sh <id>...          # hide these apps, by desktop file ID (asteroid-music)
 sonic/hide-apps.sh --show <id>...   # show these apps again
 sonic/hide-apps.sh --undo           # show again every app the script hid

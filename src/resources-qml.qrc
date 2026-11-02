@@ -43,6 +43,7 @@
         <file alias="asteroid-stopwatch.svg">../sonic/icons/asteroid-stopwatch.svg</file>
         <file alias="asteroid-timer.svg">../sonic/icons/asteroid-timer.svg</file>
         <file alias="asteroid-weather.svg">../sonic/icons/asteroid-weather.svg</file>
+        <file alias="sonic-weather.svg">../sonic/icons/asteroid-weather.svg</file>
         <file alias="find-phone.svg">../sonic/icons/find-phone.svg</file>
         <file alias="sonic-checkin.svg">../sonic/icons/sonic-checkin.svg</file>
     </qresource>
