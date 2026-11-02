@@ -7,8 +7,10 @@
  * file of the same name with NoDisplay=true in /usr/local/share/applications
  * (sonic/hide-apps.sh writes them) or ~/.local/share/applications.
  *
- * Weather is Sonic Screwdriver's own, sonic-weather; the stock
- * asteroid-weather, which hide-apps hides, would follow the others by title.
+ * Weather, Timer and Stopwatch are Sonic Screwdriver's own, sonic-weather,
+ * sonic-timer and sonic-stopwatch; the stock asteroid-weather, asteroid-timer
+ * and asteroid-stopwatch, which hide-apps hides, would follow the others by
+ * title.
  */
 
 import org.nemomobile.lipstick 0.1
@@ -20,8 +22,8 @@ AppListModel {
         "sonic-checkin",
         "asteroid-alarmclock",
         "asteroid-hrm",
-        "asteroid-timer",
-        "asteroid-stopwatch",
+        "sonic-timer",
+        "sonic-stopwatch",
         "sonic-weather",
         "asteroid-flashlight",
         "asteroid-diamonds"

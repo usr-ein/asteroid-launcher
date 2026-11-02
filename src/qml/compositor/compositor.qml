@@ -38,6 +38,7 @@ import org.asteroid.utils 1.0
 import org.asteroid.launcher 1.0
 import Nemo.DBus 2.0
 import "desktop.js" as Desktop
+import "ringsbutton.js" as RingsButton
 import "compositor"
 
 Item {
@@ -160,6 +161,18 @@ Item {
         keyCode: 139 // KEY_MENU
         interval: 400
         onDoubleClicked: flashlight.toggle()
+        // On the rings face, a single press opens the app of the view it shows
+        // (the main repo's docs/prd/clock.md § 8.8 and § 8.9); anywhere else it
+        // does nothing, as before.
+        onSingleClicked: {
+            var grid = Desktop.panelsGrid
+            var app = RingsButton.app(comp.displayOn, Lipstick.compositor.displayAmbient,
+                                      Lipstick.compositor.homeActive,
+                                      grid ? grid.currentHorizontalPos : -1, grid ? grid.currentVerticalPos : -1,
+                                      Desktop.desktop ? Desktop.desktop.ringsView : "")
+            if (app !== "")
+                appLauncher.launchApp(app)
+        }
     }
 
     AppLauncher {

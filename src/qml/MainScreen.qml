@@ -66,6 +66,11 @@ Item {
     property var compositor: Lipstick.compositor
 
     property bool aboutToOpen: false
+    // The rings face's view (the main repo's docs/prd/clock.md § 8.8):
+    // "timers" or "stopwatches" while the face shows the rings, "" otherwise,
+    // from the face's own sonicRingsView. The bottom button reads it
+    // (compositor.qml).
+    property string ringsView: ""
     property bool aboutToClose: false
     property bool aboutToMinimize: false
 
@@ -358,6 +363,10 @@ Item {
             property bool forbidBottom: activeFace !== null && activeFace.forbidBottom === true
             property bool forbidLeft: activeFace !== null && activeFace.forbidLeft === true
             property bool forbidRight: activeFace !== null && activeFace.forbidRight === true
+            readonly property string ringsView: activeFace !== null && typeof activeFace.sonicRingsView === "string"
+                                                ? activeFace.sonicRingsView : ""
+            onRingsViewChanged: desktop.ringsView = ringsView
+            Component.onCompleted: desktop.ringsView = ringsView
             onForbidTopChanged: grid.changeAllowedDirections()
             onForbidBottomChanged: grid.changeAllowedDirections()
             onForbidLeftChanged: grid.changeAllowedDirections()

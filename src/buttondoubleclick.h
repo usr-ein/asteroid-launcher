@@ -10,13 +10,16 @@
 #include <QObject>
 #include <QQmlParserStatus>
 #include <QStringList>
+#include <QTimer>
 #include <QVector>
 
 class QSocketNotifier;
 
 /*
  * Emits doubleClicked() when a button is pressed twice within `interval`
- * milliseconds.
+ * milliseconds, and singleClicked() for a press that stays alone: `interval`
+ * after it arrives with no second press, or at once when the next press comes
+ * too late to pair with it. A double-click emits no singleClicked().
  *
  * It reads the input devices themselves, not Qt's key events: lipstick hides
  * its window while the display is off, and Qt then delivers no key event at
@@ -64,6 +67,7 @@ signals:
     void devicesChanged();
     void openDevicesChanged();
     void doubleClicked();
+    void singleClicked();
 
 private:
     struct Device {
@@ -83,6 +87,9 @@ private:
     QStringList m_devices;
     QVector<Device> m_open;
     qint64 m_lastPress = -1;
+    // Runs from a press's arrival: a second press that arrives in time
+    // pairs with it; otherwise the press stood alone.
+    QTimer m_single;
     bool m_complete = false;
     bool m_reopenScheduled = false;
 };

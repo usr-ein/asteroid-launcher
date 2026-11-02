@@ -32,6 +32,10 @@ ButtonDoubleClick::ButtonDoubleClick(QObject *parent)
     : QObject(parent)
     , m_keyCode(KEY_MENU)
 {
+    m_single.setSingleShot(true);
+    // m_lastPress stays: a second press that arrives late, after a wake, but
+    // was pressed in time still makes a double-click.
+    connect(&m_single, &QTimer::timeout, this, &ButtonDoubleClick::singleClicked);
 }
 
 ButtonDoubleClick::~ButtonDoubleClick()
@@ -202,8 +206,15 @@ void ButtonDoubleClick::pressed(qint64 msec)
 {
     if (m_lastPress >= 0 && msec >= m_lastPress && msec - m_lastPress <= m_interval) {
         m_lastPress = -1;
+        m_single.stop();
         emit doubleClicked();
-    } else {
-        m_lastPress = msec;
+        return;
     }
+    if (m_single.isActive()) {
+        // The press before stood alone: this one came too late to pair.
+        m_single.stop();
+        emit singleClicked();
+    }
+    m_lastPress = msec;
+    m_single.start(m_interval);
 }

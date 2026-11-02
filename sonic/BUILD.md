@@ -125,6 +125,10 @@ To uninstall completely:
 - **Weather is Sonic Screwdriver's own,** `sonic-weather` (the main repo's
   `weather/`), fed by the iPhone through ioslink. The stock `asteroid-weather`
   is hidden with the others; shown again, it would follow them by title.
+- **So are Timer and Stopwatch,** `sonic-timer` and `sonic-stopwatch` (the
+  main repo's `clock/watch/`), the same as Sonic's timers and stopwatches
+  through ioslink. The stock `asteroid-timer` and `asteroid-stopwatch` are
+  hidden with the others.
 - **The list opens on Check-in:** once it has been left for the watch face, by
   a swipe, an app closing or the display going off, it goes back to its first
   app. Coming back from a minimised app keeps the page.
@@ -141,7 +145,9 @@ To uninstall completely:
   Flashlight and Diamonds. They are original drawings in one style: a disc of
   the app's colour, darkened, with a flat, rounded, full-colour symbol on it.
   Weather's disc is a blue sky, Flashlight's a dark grey; `sonic-weather.svg`
-  is an alias of `asteroid-weather.svg`, so both Weathers wear it. Qt draws them with
+  is an alias of `asteroid-weather.svg`, so both Weathers wear it, and
+  `sonic-timer.svg` and `sonic-stopwatch.svg` are the Timer's and the
+  Stopwatch's, the same way. Qt draws them with
   its SVG Tiny renderer, so they use no clip paths, masks, filters or CSS.
 - **The list:** each page shows the app's logo, the size of the stock icon
   circle, with its name under it, smaller and in sentence case ("Alarm
@@ -159,7 +165,7 @@ To uninstall completely:
 ### Hiding apps
 
 ```sh
-sonic/hide-apps.sh                  # hide Music, Calculator, Agenda, Settings and the stock Weather
+sonic/hide-apps.sh                  # hide Music, Calculator, Agenda, Settings, and the stock Weather, Timer and Stopwatch
 sonic/hide-apps.sh <id>...          # hide these apps, by desktop file ID (asteroid-music)
 sonic/hide-apps.sh --show <id>...   # show these apps again
 sonic/hide-apps.sh --undo           # show again every app the script hid
@@ -211,7 +217,8 @@ mockup draws it (`src/qml/today/`).
 ## The bottom button: double-click for the flashlight
 
 Two presses of the bottom button within 400 ms toggle the flashlight, from
-anywhere, with the display off too. A single press, and the top button, do
+anywhere, with the display off too. A single press on Sonic Screwdriver's
+rings face opens its app (below); anywhere else, it and the top button do
 what they did.
 - **The button:** gpio-keys' `multi_function_key`, on GPIO 48 (the board's
   `rover-keys.dtsi`), which sends `KEY_MENU` (139) from an input device of its
@@ -241,6 +248,16 @@ what they did.
   were pressed. The watch can suspend again between two presses, and the
   monotonic clock stops then: on it, presses seconds apart could look like a
   double-click.
+- **A single press on the rings face** (the main repo's docs/prd/clock.md
+  § 8.8 and § 8.9): the face that the user's watch face becomes while a timer
+  or a stopwatch runs says which view it shows in its `sonicRingsView`, which
+  `MainScreen.qml` reads from the active face into `desktop.ringsView`.
+  `ButtonDoubleClick` emits `singleClicked()` for a press that stays alone:
+  400 ms after it arrives with no second press, or at once when the next press
+  comes too late to pair with it; a double-click emits none. `compositor.qml`
+  then asks `ringsbutton.js` which app to open: `sonic-stopwatch` or
+  `sonic-timer`, only with the display on and not ambient, the home in front,
+  and the panels on the face itself; anywhere else, none.
 - **The flashlight:** asteroid-flashlight, as the quick panel's button opens
   it (`src/qml/compositor/Flashlight.qml`).
   - On: the display on first when it's off, through mce's
