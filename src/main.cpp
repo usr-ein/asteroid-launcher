@@ -46,12 +46,13 @@
 #include "launcherlocalemanager.h"
 #include "gesturefilterarea.h"
 #include "notificationsnoozer.h"
-#include "applauncher.h"
-#include "applistmodel.h"
-#include "buttondoubleclick.h"
+#include "launchertypes.h"
 
 int main(int argc, char **argv)
 {
+    // First: setCompositorPath() below compiles compositor.qml at once.
+    registerLauncherTypes();
+
     QmlPath::append(":/qml/");
     HomeApplication app(argc, argv, QString());
 
@@ -86,14 +87,6 @@ int main(int argc, char **argv)
     app.engine()->rootContext()->setContextProperty("nativeOrientation", nativeOrientation);
     app.engine()->rootContext()->setContextProperty("firstRun", firstRun);
 
-    qmlRegisterType<AppLauncherBackground>("org.asteroid.launcher", 1, 0, "AppLauncherBackground");
-    qmlRegisterType<GestureFilterArea>("org.asteroid.launcher", 1, 0, "GestureFilterArea");
-    qmlRegisterType<NotificationSnoozer>("org.asteroid.launcher", 1, 0, "NotificationSnoozer");
-    qmlRegisterType<AppLauncher>("org.asteroid.launcher", 1, 0, "AppLauncher");
-    qmlRegisterType<AppListModel>("org.asteroid.launcher", 1, 0, "AppListModel");
-    // For AppListModel's sourceModel, set from QML.
-    qmlRegisterAnonymousType<QAbstractItemModel>("org.asteroid.launcher", 1);
-    qmlRegisterType<ButtonDoubleClick>("org.asteroid.launcher", 1, 0, "ButtonDoubleClick");
     app.setQmlPath("qrc:/qml/MainScreen.qml");
 
     // Give these to the environment inside the lipstick homescreen

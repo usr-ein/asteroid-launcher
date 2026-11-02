@@ -2,9 +2,14 @@
 # Sonic Screwdriver: the launcher's QML off the watch, under emulation.
 #
 #   sonic/test/test.sh             every scene
-#   sonic/test/test.sh <scene>...  these scenes: applist, quickpanel, today,
-#                                  button, then preview, a sheet of the
-#                                  others' screenshots
+#   sonic/test/test.sh <scene>...  these scenes: load, applist, quickpanel,
+#                                  today, button, then preview, a sheet of
+#                                  the others' screenshots
+#
+# load isn't a scene: it compiles compositor.qml and MainScreen.qml as
+# lipstick does, with the launcher's types registered as main() registers
+# them and the watch's own lipstick QML plugin, so that a module or a type
+# missing on the watch fails here.
 #
 # Each scene (sonic/test/<scene>.qml) runs the fork's own QML, compiled in as
 # in the launcher, in a 454 × 454 view: the watch's screen. It uses the SDK's
@@ -30,9 +35,12 @@ build_volume=${SONIC_BUILD_VOLUME:-sonic-asteroid-launcher-build}-test
 sdk_dir=/opt/asteroid-sdk
 stage=$cache/launcher-stage
 fonts=$cache/watch-fonts
-all_scenes="applist quickpanel today button preview"
+all_scenes="load applist quickpanel today button preview"
 
 # <local name> <path on the watch> <sha256>
+watch_qml="
+liblipstickplugin.so /usr/lib/qml/org/nemomobile/lipstick/liblipstickplugin.so f0e4d785ba116b6414be34abce1f0163c41d95c37219e5855d5cb57af6245731
+"
 watch_libs="
 libmce-qt5.so.1 /usr/lib/libmce-qt5.so.1.4.2 ddeb3e7677d0b077dbed37fb4ba96a2081c6ae219e1e679812bf6db47ebc19fe
 libngf-qt5.so.0 /usr/lib/libngf-qt5.so.0.4.0 ff0ac3c2f1de243bb9c938135789858c33894218dd2331db91472537f3decb28
@@ -70,11 +78,22 @@ from_watch() {
 scenes=("$@")
 [ ${#scenes[@]} -gt 0 ] || read -r -a scenes <<<"$all_scenes"
 for scene in "${scenes[@]}"; do
-	[ -f "$here/$scene.qml" ] || { echo "no scene $here/$scene.qml" >&2; exit 64; }
+	[ "$scene" = load ] || [ -f "$here/$scene.qml" ] || { echo "no scene $here/$scene.qml" >&2; exit 64; }
 done
+
+# lipstick compiles compositor.qml when main() calls setCompositorPath(): the
+# launcher's types must be registered before that.
+register=$(grep -n '^[[:space:]]*registerLauncherTypes();' "$src/src/main.cpp" | head -n 1 | cut -d: -f1)
+compositor=$(grep -n '^[[:space:]]*app\.setCompositorPath(' "$src/src/main.cpp" | head -n 1 | cut -d: -f1)
+if [ -z "$register" ] || [ -z "$compositor" ] || [ "$register" -ge "$compositor" ]; then
+	echo "src/main.cpp must call registerLauncherTypes() before setCompositorPath()" >&2
+	exit 1
+fi
 
 "$sonic/build.sh"
 from_watch "$stage/lib" "$watch_libs"
+from_watch "$stage/qml/org/nemomobile/lipstick" "$watch_qml"
+printf 'module org.nemomobile.lipstick\nplugin lipstickplugin\n' > "$stage/qml/org/nemomobile/lipstick/qmldir"
 from_watch "$fonts" "$watch_fonts"
 
 log "checking the QML and building the test harness"
