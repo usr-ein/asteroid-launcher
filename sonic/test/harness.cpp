@@ -10,6 +10,9 @@
  */
 
 #include <QColor>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDateTime>
 #include <QFile>
 #include <QFont>
 #include <QHash>
@@ -119,6 +122,118 @@ private:
     QHash<QString, int> m_inputs;
 };
 
+// ioslink's FindPhone interface on the test bus, as the quick panel's Find
+// phone button reads it (src/qml/quickpanel/FindPhone.qml): what's exported.
+class FindPhoneObject : public QObject
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.sonicscrewdriver.ioslink.FindPhone")
+    Q_PROPERTY(bool Ringing READ ringing SCRIPTABLE true)
+    Q_PROPERTY(bool Available READ available SCRIPTABLE true)
+    Q_PROPERTY(QString Problem READ problem SCRIPTABLE true)
+    Q_PROPERTY(qlonglong ProblemAt READ problemAt SCRIPTABLE true)
+
+public:
+    bool ringing() const { return m_ringing; }
+    bool available() const { return m_available; }
+    QString problem() const { return m_problem; }
+    qlonglong problemAt() const { return m_problemAt; }
+
+    bool m_ringing = false;
+    bool m_available = false;
+    QString m_problem;
+    qlonglong m_problemAt = 0;
+
+signals:
+    void ringCalled();
+    void stopCalled();
+
+public slots:
+    Q_SCRIPTABLE void Ring() { emit ringCalled(); }
+    Q_SCRIPTABLE void Stop() { emit stopCalled(); }
+};
+
+// The stand-in for ioslink that a scene drives, as `ioslink`: it puts the
+// FindPhone interface on the test bus, or takes it off, and answers Ring()
+// and Stop() as told.
+class IoslinkStandIn : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool available READ available WRITE setAvailable)
+    Q_PROPERTY(bool ringing READ ringing WRITE setRinging)
+    // How Ring() is answered: "ring", "denied" (CODE_DENIED) or "none".
+    Q_PROPERTY(QString answer MEMBER m_answer)
+    Q_PROPERTY(int rings MEMBER m_rings)
+    Q_PROPERTY(int stops MEMBER m_stops)
+
+public:
+    IoslinkStandIn()
+    {
+        connect(&m_object, &FindPhoneObject::ringCalled, this, [this] {
+            ++m_rings;
+            if (m_answer == QLatin1String("ring"))
+                setRinging(true);
+            else if (m_answer == QLatin1String("denied"))
+                setProblem(QStringLiteral("Allow alarms in Sonic"));
+        });
+        connect(&m_object, &FindPhoneObject::stopCalled, this, [this] {
+            ++m_stops;
+            setRinging(false);
+        });
+    }
+
+    bool available() const { return m_object.m_available; }
+    void setAvailable(bool available)
+    {
+        m_object.m_available = available;
+        changed(QStringLiteral("Available"), available);
+    }
+    bool ringing() const { return m_object.m_ringing; }
+    void setRinging(bool ringing)
+    {
+        m_object.m_ringing = ringing;
+        changed(QStringLiteral("Ringing"), ringing);
+    }
+    void setProblem(const QString &problem)
+    {
+        m_object.m_problem = problem;
+        changed(QStringLiteral("Problem"), problem);
+        m_object.m_problemAt = QDateTime::currentSecsSinceEpoch();
+        changed(QStringLiteral("ProblemAt"), m_object.m_problemAt);
+    }
+
+    Q_INVOKABLE bool start()
+    {
+        QDBusConnection bus = QDBusConnection::sessionBus();
+        return bus.registerObject(path, &m_object,
+                                  QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableProperties)
+            && bus.registerService(service);
+    }
+
+    Q_INVOKABLE void stop()
+    {
+        QDBusConnection bus = QDBusConnection::sessionBus();
+        bus.unregisterService(service);
+        bus.unregisterObject(path);
+    }
+
+private:
+    void changed(const QString &name, const QVariant &value)
+    {
+        QDBusMessage signal = QDBusMessage::createSignal(path, QStringLiteral("org.freedesktop.DBus.Properties"),
+                                                         QStringLiteral("PropertiesChanged"));
+        signal << QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone") << QVariantMap{{name, value}} << QStringList();
+        QDBusConnection::sessionBus().send(signal);
+    }
+
+    const QString service = QStringLiteral("org.sonicscrewdriver.ioslink");
+    const QString path = QStringLiteral("/org/sonicscrewdriver/ioslink");
+    FindPhoneObject m_object;
+    QString m_answer = QStringLiteral("ring");
+    int m_rings = 0;
+    int m_stops = 0;
+};
+
 int main(int argc, char **argv)
 {
     QGuiApplication app(argc, argv);
@@ -142,8 +257,10 @@ int main(int argc, char **argv)
     qmlRegisterType<LauncherModel>("org.nemomobile.lipstick", 0, 1, "LauncherModel");
 
     TestTools tools;
+    IoslinkStandIn ioslink;
     QQuickView view;
     view.rootContext()->setContextProperty(QStringLiteral("test"), &tools);
+    view.rootContext()->setContextProperty(QStringLiteral("ioslink"), &ioslink);
     view.setResizeMode(QQuickView::SizeRootObjectToView);
     view.resize(454, 454);
     view.setSource(QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1])));

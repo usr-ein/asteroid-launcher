@@ -82,6 +82,16 @@ arm "$S/usr/bin/dbus-daemon" --config-file=/src/sonic/test/dbus.conf --fork --no
 # The test bus stands in for the system bus too, where nothing answers.
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/test-bus DBUS_SYSTEM_BUS_ADDRESS=unix:path=/tmp/test-bus
 
+# dconf's service on the test bus, so that the scenes can change settings as
+# on the watch, and its tool on the PATH, both through the SDK's loader.
+mkdir -p /tmp/bin
+printf '#!/bin/sh
+exec %s %s/usr/bin/dconf "$@"
+' "$ARM" "$S" > /tmp/bin/dconf
+chmod 755 /tmp/bin/dconf
+export PATH="/tmp/bin:$PATH"
+arm "$S/usr/libexec/dconf-service" > /tmp/dconf-service.log 2>&1 &
+
 export LANG=en_GB.UTF-8 QT_QPA_PLATFORM=vnc:size=454x454 QT_QUICK_BACKEND=software
 export QT_PLUGIN_PATH=$S/usr/lib/plugins QML2_IMPORT_PATH=/src/sonic/test/stubs:$S/usr/lib/qml
 export FONTCONFIG_FILE=/src/sonic/test/fonts.conf QT_LOGGING_RULES='qt.qpa.*=false'

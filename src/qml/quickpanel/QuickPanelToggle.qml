@@ -37,6 +37,8 @@ MouseArea {
     height: width
 
     property alias icon: ic.name
+    // A picture of its own, drawn in white, in place of the named icon.
+    property url iconSource: ""
     property bool checkable: false
     property bool checked: false
     property color tint: "#2b2f36"
@@ -103,11 +105,22 @@ MouseArea {
 
     Icon {
         id: ic
+        visible: ma.iconSource == ""
         width: parent.width*0.5
         height: width
         anchors.centerIn: parent
         color: ma.pressed ? "lightgrey" : "white"
         opacity: ma.pressed ? 0.5 : ma.checked ? 1 : (ma.checkable ? 0.4 : 1)
+    }
+
+    Image {
+        visible: ma.iconSource != ""
+        width: ic.width
+        height: ic.height
+        anchors.centerIn: parent
+        source: ma.iconSource
+        sourceSize: Qt.size(width, height)
+        opacity: ic.opacity
     }
 }
 
