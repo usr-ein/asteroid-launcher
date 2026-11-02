@@ -204,6 +204,29 @@ mockup draws it (`src/qml/today/`).
 - `timeline.js` lays the day out in the mockup's pixels, and `Today.qml`
   scales them to the screen. `TodayEvent.qml` draws one block.
 
+## The bottom button: double-click for the flashlight
+
+Two presses of the bottom button within 400 ms toggle the flashlight, from
+anywhere, with the display off too. A single press, and the top button, do
+what they did.
+- **The button:** on this watch, the PMIC's RESIN key, which sends
+  `KEY_VOLUMEDOWN` (114) from the same input device as the power key,
+  `qpnp_pon`. mce never grabs that device, as it also sends `KEY_POWER`.
+- **Read from the device:** `ButtonDoubleClick` (`src/buttondoubleclick.cpp`)
+  reads `/dev/input/event*` itself, the devices that can send the key, as
+  Qt's key events stop while the display is off: lipstick hides its window
+  then. It only reads and never grabs, and it times the presses by the
+  kernel's times of the events, so presses that wake the watch still count.
+- **The flashlight:** asteroid-flashlight, as the quick panel's button opens
+  it (`src/qml/compositor/Flashlight.qml`).
+  - On: the display on first when it's off, through mce's
+    `req_display_state_on`, then the app, which goes to full brightness.
+  - Off: the app closes, as a swipe closes it, and restores the brightness.
+  - It opens over the app on the screen without closing it, unlike other
+    apps, and turned off by the button, it gives the screen back to that app.
+  - Its window is the one whose process's command line names
+    asteroid-flashlight, however it was opened.
+
 ## Testing off the watch
 
 ```sh
@@ -219,8 +242,18 @@ in the launcher, in a 454 × 454 view: the watch's screen.
   renderer.
 - **Another worktree** of the fork can build in Docker volumes of its own:
   `SONIC_BUILD_VOLUME=<name> sonic/test/test.sh`, also for `sonic/build.sh`.
-- **What it checks:** the scenes check what they show, then save screenshots
-  and contact sheets to `sonic/out/test/shots/`.
+- **What it checks:** first, that the launcher loads on the watch:
+  - `src/main.cpp` registers the launcher's QML types,
+    `registerLauncherTypes()`, before lipstick's `setCompositorPath()`, which
+    compiles `compositor.qml` at once;
+  - `load` compiles `compositor.qml` and `MainScreen.qml` as lipstick does,
+    with the launcher's types, the watch's own lipstick QML plugin and the
+    SDK's real plugins, so that a module or a type missing on the watch
+    fails here. It first compiles `compositor.qml` without the launcher's
+    types, which must fail as it did on the watch, to check the check.
+
+  Then the scenes check what they show, and save screenshots and contact
+  sheets to `sonic/out/test/shots/`.
   - `applist` checks the order, the hidden apps with `sonic/watch/hide-apps`
     itself, and that lipstick alone honours no override. It reads each logo
     back from the screenshots by its colours, and checks the names.
@@ -229,12 +262,15 @@ in the launcher, in a 454 × 454 view: the watch's screen.
   - `today` runs the Today screen with the SDK's real AgendaModel over mkcal.
     `seed-calendar.cpp` fills four coloured notebooks with the mockup's
     sample days, invented, and changes them under the open screen.
+  - `button` feeds invented input events to `ButtonDoubleClick` through a
+    FIFO, and drives `Flashlight.qml` with a stand-in for the compositor's
+    windows: from the home, over an app, with the display off, and more.
   - `preview` puts the others' screenshots on one sheet,
     `preview-dark-theme.png`.
 - **The software renderer** draws no shader effects: the quick panel's
   battery bar, which an opacity mask shapes, doesn't show in the screenshots.
   It does on the watch.
 - **What it needs from the watch:** two libraries that lipstick needs and the
-  SDK lacks, `libmce-qt5` and `libngf-qt5`, and the watch's Noto Sans for the
-  screenshots. They are copied once over SSH and checked against the SHA-256
+  SDK lacks, `libmce-qt5` and `libngf-qt5`, lipstick's QML plugin, and the
+  watch's Noto Sans for the screenshots. They are copied once over SSH and checked against the SHA-256
   in `test.sh`. Nothing runs on the watch.

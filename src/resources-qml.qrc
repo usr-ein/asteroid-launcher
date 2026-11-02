@@ -25,6 +25,7 @@
         <file alias="TodayEvent.qml">qml/today/TodayEvent.qml</file>
         <file alias="compositor/WindowWrapperBase.qml">qml/compositor/WindowWrapperBase.qml</file>
         <file alias="compositor/CircleMaskShader.qml">qml/compositor/CircleMaskShader.qml</file>
+        <file alias="compositor/Flashlight.qml">qml/compositor/Flashlight.qml</file>
         <file alias="system/ShutdownScreen.qml">qml/misc/ShutdownScreen.qml</file>
         <file alias="volumecontrol/VolumeControl.qml">qml/misc/VolumeControl.qml</file>
         <file alias="connectivity/USBModeSelector.qml">qml/misc/USBModeSelector.qml</file>

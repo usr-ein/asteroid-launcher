@@ -1,4 +1,9 @@
-Stand-ins for the QML modules that the SDK lacks, or whose real plugins would
-reach for the watch's services (MCE, profiled, connman, PulseAudio): just the
-types and properties that the launcher's QML uses, with invented values.
-sonic/test/run.sh puts this directory first in the QML import path.
+Stand-ins for QML modules, with just the types and properties that the
+launcher's QML uses, and invented values:
+- missing/: modules that the SDK lacks, which the watch has: Nemo.Mce and
+  Nemo.Ngf.
+- services/: modules that the SDK has, but whose real plugins would reach for
+  the watch's services at run time (MCE, profiled, connman, PulseAudio):
+  org.nemomobile.systemsettings, Connman and QtMultimedia.
+run.sh puts both first in the scenes' QML import path. The load check, which
+compiles without running, uses missing/ only, and the SDK's real plugins.

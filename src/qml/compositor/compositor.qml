@@ -35,6 +35,8 @@ import QtQuick.Window 2.1
 import org.nemomobile.lipstick 0.1
 import org.asteroid.controls 1.0
 import org.asteroid.utils 1.0
+import org.asteroid.launcher 1.0
+import Nemo.DBus 2.0
 import "desktop.js" as Desktop
 import "compositor"
 
@@ -148,6 +150,39 @@ Item {
         WindowWrapperBase { }
     }
 
+    // The bottom button's double-click toggles the flashlight, from anywhere,
+    // with the display off too (Flashlight.qml). The bottom button is the
+    // PMIC's RESIN key, KEY_VOLUMEDOWN; its single press is left alone.
+    ButtonDoubleClick {
+        keyCode: 114 // KEY_VOLUMEDOWN
+        interval: 400
+        onDoubleClicked: flashlight.toggle()
+    }
+
+    AppLauncher {
+        id: appLauncher
+    }
+
+    DBusInterface {
+        id: mceRequest
+        bus: DBus.SystemBus
+        service: "com.nokia.mce"
+        path: "/com/nokia/mce/request"
+        iface: "com.nokia.mce.request"
+    }
+
+    Flashlight {
+        id: flashlight
+        comp: comp
+        displayOn: comp.displayOn && !Lipstick.compositor.displayAmbient
+        isFlashlight: function(window) {
+            return appLauncher.commandLine(window.processId).indexOf("asteroid-flashlight") !== -1
+        }
+        closeWindow: function(wrapper) { Lipstick.compositor.closeClientForWindowId(wrapper.window.windowId) }
+        launch: function() { appLauncher.launchApp("asteroid-flashlight") }
+        wake: function() { mceRequest.call("req_display_state_on", undefined) }
+    }
+
     Timer {
         id: delayTimer
         interval: 5000
@@ -178,6 +213,8 @@ Item {
         // The application window that was most recently topmost
         property Item topmostApplicationWindow
 
+        property bool displayOn: true
+
         readonly property bool topmostWindowRequestsGesturesDisabled: topmostWindow && topmostWindow.window
                                                                       && (topmostWindow.window.windowFlags & 1)
 
@@ -206,8 +243,12 @@ Item {
             }
         }
 
-        onDisplayOff: delayTimer.start()
+        onDisplayOff: {
+            displayOn = false
+            delayTimer.start()
+        }
         onDisplayAboutToBeOn: delayTimer.stop()
+        onDisplayOn: displayOn = true
 
         onWindowAdded: {
             var isHomeWindow = window.isInProcess && comp.homeWindow == null && window.title === "Home"
@@ -234,8 +275,12 @@ Item {
                 comp.homeWindow = w
                 setCurrentWindow(homeWindow)
             } else if (!isNotificationWindow && !isAgentWindow && !isDialogWindow) {
-                if (topmostApplicationWindow != null) {
-                    Lipstick.compositor.closeClientForWindowId(topmostApplicationWindow.window.windowId)
+                // The flashlight opens over the app without closing it.
+                if (!flashlight.opened(w)) {
+                    if (topmostApplicationWindow != null) {
+                        Lipstick.compositor.closeClientForWindowId(topmostApplicationWindow.window.windowId)
+                    }
+                    flashlight.closeBelow()
                 }
                 parent.ready = false
                 w.smoothBorders = true
@@ -250,7 +295,11 @@ Item {
 
         onWindowRemoved: {
             var w = window.userData;
-            if (comp.topmostWindow == w)
+            // When the flashlight turns off, the app it opened over comes back.
+            var below = flashlight.closed(w)
+            if (below !== null)
+                setCurrentWindow(below, true)
+            else if (comp.topmostWindow == w)
                 setCurrentWindow(comp.homeWindow);
 
             if (window.userData)

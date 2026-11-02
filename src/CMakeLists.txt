@@ -6,6 +6,8 @@ set(SRC
 	launcherlocalemanager.cpp
 	applauncher.cpp
 	applistmodel.cpp
+	buttondoubleclick.cpp
+	launchertypes.cpp
 	notificationsnoozer.cpp)
 set(HEADERS
 	applauncherbackground.h
@@ -14,6 +16,8 @@ set(HEADERS
 	launcherlocalemanager.h
 	applauncher.h
 	applistmodel.h
+	buttondoubleclick.h
+	launchertypes.h
 	notificationsnoozer.h)
 
 add_executable(asteroid-launcher ${SRC} ${HEADERS} resources-qml.qrc)
