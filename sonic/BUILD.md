@@ -332,8 +332,11 @@ they did.
     mce's `req_cpu_keepalive_start`, first, because the watch can suspend within
     150 ms of the press; then ioslink's `Arm(pressedAt)`, asynchronously. With no
     ioslink on the bus, nothing at all.
-  - **At 0.5 s:** the recording screen shows, `req_display_state_on` if the
-    display was off or ambient, `req_display_blanking_pause`, and `Keep(id)`.
+  - **At 0.5 s:** the recording screen shows, the lockscreen is let go (below),
+    `req_display_state_on` if the display was off or ambient,
+    `req_display_blanking_pause`, and `Keep(id)`. The pause is asked again as soon
+    as the display is on, and once more 1.5 s after it began, in case mce hadn't
+    the unlock or the display yet when it was first asked.
   - **At the release:** `Stop(id, releasedAt)`, or `Cancel(id)` for a click.
   - **Arm's answer comes when it comes.** It holds the id that Keep, Stop and
     Cancel need, so they wait for it, in that order. `""` is a refusal (State's
@@ -346,7 +349,29 @@ they did.
     after the note ended. A click lets them go at the release. The keepalive's
     period is asked of mce under a session of its own: a period query renews its
     session to 2 s, which would cut the real one short. A hard limit lets go of
-    everything 635 s after the press whatever happens.
+    everything 635 s after the press whatever happens. mce drops a client's
+    keepalive and blanking pause when the client leaves the bus, so a launcher
+    that crashes or is killed leaves neither behind.
+  - **The screen stays on because of the lockscreen, not the pause alone.** The
+    watch face is the lockscreen for mce (`compositor.qml`'s `lockscreenWanted`:
+    `lipstickSettings.lockscreenVisible` is true on the face, false elsewhere).
+    While it is locked, mce blanks the display 10 s after it came on ("blank from
+    lockscreen", `mcetool`) and allows no blanking pause: its "blanking pause
+    allowed" status follows its tklock mode, true when unlocked and false when
+    locked (`journalctl`, mce: `tklock mode signal: unlocked` and `blanking pause
+    allowed signal: true`, and `locked` and `false`). A hold is on the face, or the
+    display is off and the panels return to it, so the pause that the first build
+    asked was received (`blanking pause request from ...`) and did nothing, and
+    the display went off 10 s into the note (`mdy_blanking_off_cb(): display
+    state req: LPM_ON`) while the note went on. So while `VoiceNoteHold.screenKept`
+    is true, from 0.5 s until the screen is away, `lockscreenWanted` is false:
+    `lockscreenVisible = false` sends mce the unlock, mce allows the pause, and the
+    display, in mce's `keep-on` blank prevent mode, stays on. After the screen, the
+    leases end first and the lockscreen is locked again if the face is in front.
+    Nothing needs undoing if the launcher dies: `MainScreen.qml` locks the screen
+    when it starts. Find My's effects keep the find screen lit by the same pause,
+    which works there because that screen is an app, and an app has the
+    lockscreen unlocked.
   - The names it uses: ioslink's `org.sonicscrewdriver.ioslink` on the session
     bus, object `/org/sonicscrewdriver/ioslink`, interface
     `org.sonicscrewdriver.ioslink.VoiceNotes`: the methods `Arm`, `Keep`, `Stop`
@@ -363,10 +388,16 @@ they did.
     - the duration, Noto Sans Light 104 px, centred on y 150, `0:00` to `9:59`
       and then `10:00`, on the note's own clock, State's `startedAt`;
     - the waveform: round-ended bars 6 px wide every 10 px about y 272, up to
-      100 px tall, one per 100 ms from the louder of its two 50 ms levels, from
-      -60 dBFS (6 px) to -20 dBFS (100 px), the newest at x 330 and a red 2 px
-      "now" line at x 340, the oldest fading out to the left of x 116. About 30
-      Rectangles of the scene graph, and no Canvas;
+      100 px tall, one per 100 ms, the mean in dB of its two 50 ms levels (the louder of the two hid the gaps between words), the
+      newest at x 330 and a red 2 px "now" line at x 340, the oldest fading out to
+      the left of x 116. About 30 Rectangles of the scene graph, and no Canvas.
+      What a level draws as is measured from the room's floor (voicenoteview.js):
+      the floor is the 15th percentile of the last 8 s of bars, between -60 and
+      -50 dBFS, starting at -52, falling at once and rising 0.1 dB a second at the
+      most; a bar is flat (6 px) up to 8 dB over it, full height from -27 dBFS, and
+      between the two a smoothstep. A quiet room draws as a flat line and speech
+      as tall bars with gaps between the words; a room louder than -50 dBFS draws
+      as activity, while speech keeps its height;
     - one line, 26 px, centred on y 372: "Release to save", then from 9:30 "30 s
       left" to "1 s left" in amber, and at the end "Saved · sending", "Saved · 3 on
       watch", "Saved · 18:02 dropped" (amber; "Saved · 3 dropped" for several),
@@ -533,6 +564,24 @@ in the launcher, in a 454 × 454 view: the watch's screen.
       and the notifications, with the screen up over them, and leaves them where
       they were. With the display on or ambient, in an app or on another panel,
       a hold calls nothing at all.
+    - **The waveform's mapping,** against the fixtures of
+      `voicenote-levels.js`: the user's own note of 22:30 (its quiet room, 11 to
+      15.5 s, draws as a flat line, and his speech around it tall with the gaps
+      between his words showing; the screen at five moments of it,
+      `voicenote-note-*.png` and the sheet `voicenote-note2230.png`), and the
+      earlier ones, the mockup's speech and room note, a busier room and two
+      synthetic quiet rooms: a quiet room flat, the busier room low and far lower
+      than his speech, the mockup's speech (5 to 8 dB under his) still shown, and
+      none of them becoming the floor over a long note; and the floor: a quieter room lowers it, a louder
+      one raises it 0.1 dB a second and never above -50 dBFS, a bar's floor depends
+      on the bars before it, and a late chunk of levels gives what the whole would
+      have. A tick of the view costs 0.3 ms under emulation.
+    - **The lockscreen,** with the stand-ins and a model of `compositor.qml`'s
+      `lockscreenWanted` (`button` shows the real file has those lines): at 0.5 s it
+      is let go, before the display is woken and the pause asked; the pause is asked
+      again when the display is on and a moment after, and not once the screen is
+      away; panels changing meanwhile don't lock it; it is locked again after the
+      leases; a click leaves it alone.
     - **What the screen costs,** per second in the software renderer under
       emulation, hidden, stepping and sliding: only the relation between the
       three means anything, as the watch draws on the GPU. The log has it.
