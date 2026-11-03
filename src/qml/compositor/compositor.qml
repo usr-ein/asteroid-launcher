@@ -264,7 +264,13 @@ Item {
         // Only used to change blank timeout when on watchface or elsewhere
         property bool longTimeout: homeActive
         Component.onCompleted: longTimeout = Qt.binding(function() { return homeActive && (Desktop.panelsGrid.currentVerticalPos == 0 && Desktop.panelsGrid.currentHorizontalPos == 0) })
-        onLongTimeoutChanged: lipstickSettings.lockscreenVisible = longTimeout
+        // The face is the lockscreen for mce, which blanks it 10 s after it came
+        // on and allows no blanking pause while it is locked. A voice note being
+        // recorded needs the display on, so the lockscreen is let go for as long
+        // as voiceNote keeps the screen (VoiceNoteHold.qml), and what the face
+        // wants returns after.
+        property bool lockscreenWanted: longTimeout && !voiceNote.screenKept
+        onLockscreenWantedChanged: lipstickSettings.lockscreenVisible = lockscreenWanted
 
         // True if the home window is the topmost window
         homeActive: topmostWindow == comp.homeWindow

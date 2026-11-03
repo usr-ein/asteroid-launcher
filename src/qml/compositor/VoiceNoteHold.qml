@@ -12,8 +12,8 @@
  *   press, then ioslink's Arm(pressedAt), without waiting for its answer.
  *   With no ioslink on the bus, nothing: a hold does nothing.
  * - confirm(), 0.5 s into the hold: the recording screen shows at once, the
- *   display comes on if it wasn't, mce's blanking pause starts, and
- *   Keep(id) tells ioslink that the note is real.
+ *   lockscreen is let go (screenKept), the display comes on if it wasn't, mce's
+ *   blanking pause starts, and Keep(id) tells ioslink that the note is real.
  * - end(releasedAt, confirmed), at the release: Stop(id, releasedAt) for a
  *   note, Cancel(id) for a click.
  * Arm's answer comes when it comes, and holds the id, which Keep, Stop and
@@ -24,7 +24,20 @@
  * What it holds, it holds as leases that end by themselves: mce's keepalive
  * and its blanking pause, which it renews for as long as the hold or the note
  * lasts, and lets go when the screen has finished, 2 s after the note ended.
- * A hard limit ends them too, if nothing else does.
+ * A hard limit ends them too, if nothing else does. mce drops a client's
+ * keepalive and pause when the client leaves the bus, so that a launcher that
+ * crashes or is killed leaves neither behind.
+ *
+ * The screen stays on for the whole note because of the lockscreen, not only
+ * the pause. The watch face is the lockscreen for mce (compositor.qml's
+ * lockscreenWanted): mce blanks a locked display 10 s after it came on, and
+ * allows no blanking pause while the lockscreen is locked ("blanking pause
+ * allowed" follows its tklock mode: unlocked, true; locked, false). A pause
+ * asked on the face was received and did nothing, and the display went off
+ * 10 s into the note. So `screenKept` is true from confirm() until the screen
+ * is away, and compositor.qml unlocks the lockscreen for as long as it is.
+ * Nothing needs undoing if the launcher dies: its next start locks the screen
+ * again (MainScreen.qml's LipstickSettings.lockScreen).
  */
 import QtQuick 2.15
 
@@ -48,6 +61,8 @@ Item {
     // pause within 60 s. This is half of mce's own period, once it says.
     property int keepaliveRenewMs: 30000
     property int blankingRenewMs: 30000
+    // The pause is asked once more this long after it began.
+    property int pauseAgainMs: 1500
     // The longest the leases are held, whatever happens: a note is at most
     // 10:00, and ioslink says so within its margin.
     property int capMs: 635000
@@ -62,6 +77,9 @@ Item {
     property bool keepaliveHeld: false
     property bool blankingPaused: false
     property bool periodAsked: false
+    // Whether the note keeps the screen on: from confirm() until the screen is
+    // away. compositor.qml lets go of the lockscreen while it is true.
+    property bool screenKept: false
 
     visible: false
 
@@ -90,6 +108,8 @@ Item {
             over(h)
             return
         }
+        // The lockscreen first: mce allows the pause only once it is unlocked.
+        screenKept = true
         if (h.replied && h.refused) {
             h.refusalShown = true
             overlay.refused()
@@ -100,6 +120,9 @@ Item {
             callMce("req_display_state_on", undefined)
         callMce("req_display_blanking_pause", undefined)
         blankingPaused = true
+        // Once more, in a moment: a pause asked while the display was still
+        // coming on, or before mce had the unlock, is ignored.
+        pauseAgain.restart()
         advance(h)
     }
 
@@ -218,8 +241,18 @@ Item {
         }
         if (blankingPaused) {
             blankingPaused = false
+            pauseAgain.stop()
             callMce("req_display_cancel_blanking_pause", undefined)
         }
+        // The lockscreen last: compositor.qml locks it again if the face is in
+        // front, and mce's display timeouts are the face's once more.
+        screenKept = false
+    }
+
+    // The display came on while the pause was held: ask for it again.
+    onDisplayLitChanged: {
+        if (blankingPaused && displayLit)
+            callMce("req_display_blanking_pause", undefined)
     }
 
     Connections {
@@ -240,6 +273,15 @@ Item {
         repeat: true
         running: hold.blankingPaused
         onTriggered: hold.callMce("req_display_blanking_pause", undefined)
+    }
+
+    Timer {
+        id: pauseAgain
+        interval: hold.pauseAgainMs
+        onTriggered: {
+            if (hold.blankingPaused)
+                hold.callMce("req_display_blanking_pause", undefined)
+        }
     }
 
     // The hard limit on what is held.

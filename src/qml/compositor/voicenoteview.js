@@ -14,13 +14,36 @@ var LIMIT_MS = 600000
 // The last 30 s count down in amber.
 var COUNTDOWN_S = 30
 
-// The bars: −60 dBFS is 6 px tall and −20 dBFS 100 px, in the mockup's pixels
-// at 454 × 454. A level is the RMS of 50 ms; a bar covers 100 ms.
-var DB_QUIET = -60
-var DB_LOUD = -20
+// The bars, in the mockup's pixels at 454 × 454: 6 px for the room and 100 px
+// for speech at its loudest. A level is the RMS of 50 ms, in dBFS; a bar covers
+// 100 ms.
 var BAR_MIN = 6
 var BAR_MAX = 100
 var BAR_MS = 100
+
+// What a level draws as depends on the room. Speech sits 8 to 18 dB above a
+// quiet room, and the room's own level wanders by 5 dB or more, so a fixed scale
+// can't show silence flat and speech tall: the bars are measured from the room's
+// floor, which a note tracks as it goes.
+//  - The floor is the 15th percentile of the last 80 bars (8 s), kept between
+//    FLOOR_BOTTOM and FLOOR_TOP. It starts at FLOOR_START, a quiet room's, falls
+//    to a quieter room at once, and rises by FLOOR_RISE a bar at the most (0.1 dB
+//    a second): speech has few gaps and must not become the floor, and a louder
+//    room is followed slowly. FLOOR_TOP is low on purpose: a room louder than it
+//    draws as activity, but speech keeps its height, whatever the length of the
+//    note.
+//  - A bar is flat (BAR_MIN) up to KNEE_DB above the floor, full height
+//    (BAR_MAX) from LOUD_DB, and between the two it follows a smoothstep: flat at
+//    both ends and steepest in the middle, so that the room's wander draws as
+//    nothing and a syllable as much.
+var FLOOR_START = -52
+var FLOOR_TOP = -50
+var FLOOR_BOTTOM = -60
+var FLOOR_BARS = 80
+var FLOOR_PERCENTILE = 0.15
+var FLOOR_RISE = 0.01
+var KNEE_DB = 8
+var LOUD_DB = -33
 
 // "0:42", "4:07", "10:00": from the press, and no more than the limit.
 function clock(ms) {
@@ -34,23 +57,66 @@ function timeOfDay(unixMs) {
     return (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes()
 }
 
-// A bar's height for a level in dBFS.
-function barHeight(db) {
-    var f = (db - DB_QUIET) / (DB_LOUD - DB_QUIET)
-    return BAR_MIN + Math.min(1, Math.max(0, f)) * (BAR_MAX - BAR_MIN)
+// A bar's height for a level in dBFS over the room's floor in dBFS.
+function barHeight(db, floor) {
+    var knee = (floor === undefined ? FLOOR_START : floor) + KNEE_DB
+    var x = Math.min(1, Math.max(0, (db - knee) / (LOUD_DB - knee)))
+    return BAR_MIN + x * x * (3 - 2 * x) * (BAR_MAX - BAR_MIN)
+}
+
+// The q-th quantile of numbers in ascending order, interpolated.
+function quantile(sorted, q) {
+    var at = q * (sorted.length - 1)
+    var below = Math.floor(at)
+    var above = Math.min(below + 1, sorted.length - 1)
+    return sorted[below] + (sorted[above] - sorted[below]) * (at - below)
 }
 
 // The levels of a note, by bar: bars[k] is the loudest level, in dBFS, that
 // starts within [100 k, 100 k + 100) ms of the press. A level is a hundredth
 // of a dBFS in a signal, and starts at fromMs + 50 i. A bar with no level yet
-// is undefined.
+// is undefined. The bars change only through here, which notes the first one
+// that did, for floors().
 function addLevels(bars, fromMs, centibels) {
     for (var i = 0; i < centibels.length; i++) {
         var k = Math.floor((fromMs + 50 * i) / BAR_MS)
         var db = centibels[i] / 100
-        if (k >= 0 && (bars[k] === undefined || db > bars[k]))
+        if (k >= 0 && (bars[k] === undefined || db > bars[k])) {
             bars[k] = db
+            bars.touched = bars.touched === undefined ? k : Math.min(bars.touched, k)
+        }
     }
+}
+
+// The room's floor under the bars up to `newest`, in dBFS: floors[k] is the
+// floor for bars[k], worked out from the bars up to k alone, so that a bar's
+// height never depends on what comes after it. They are kept on the array of
+// bars, and worked out again from the first bar that addLevels has changed since
+// (the newest, but for a late chunk of levels).
+function floors(bars, newest) {
+    var kept = bars.floors
+    if (kept === undefined) {
+        kept = []
+        bars.floors = kept
+    }
+    var from = bars.touched === undefined ? kept.length : Math.min(kept.length, bars.touched)
+    bars.touched = undefined
+    kept.length = from
+    var floor = from > 0 ? kept[from - 1] : FLOOR_START
+    for (var k = from; k <= newest; k++) {
+        if (bars[k] !== undefined) {
+            var window = []
+            for (var j = Math.max(0, k - FLOOR_BARS + 1); j <= k; j++) {
+                if (bars[j] !== undefined)
+                    window.push(bars[j])
+            }
+            window.sort(function(a, b) { return a - b })
+            var seen = Math.max(FLOOR_BOTTOM, Math.min(FLOOR_TOP, quantile(window, FLOOR_PERCENTILE)))
+            floor = seen > floor ? Math.min(seen, floor + FLOOR_RISE) : seen
+        }
+        kept[k] = floor
+    }
+    return kept
 }
 
 // The newest bar's index for a time since the press. The levels reach the
@@ -63,10 +129,12 @@ function newestBar(elapsedMs, lagMs) {
 // The heights of the `count` bars from the newest back, 0 where there is no
 // level, in the mockup's pixels.
 function heights(bars, newest, count) {
+    var floor = floors(bars, newest)
     var out = []
     for (var k = 0; k < count; k++) {
-        var level = newest - k >= 0 ? bars[newest - k] : undefined
-        out.push(level === undefined ? 0 : barHeight(level))
+        var at = newest - k
+        var level = at >= 0 ? bars[at] : undefined
+        out.push(level === undefined ? 0 : barHeight(level, floor[at]))
     }
     return out
 }
