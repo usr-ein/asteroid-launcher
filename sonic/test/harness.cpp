@@ -474,8 +474,13 @@ public:
     QVariantList m_drops;
     QStringList m_calls;
     QVariantList m_times;
+    // The errors it answered with, each "Busy" or "NotFound <id>".
+    QStringList m_errors;
 
     QString m_id;
+    // The note that ended last: a call for it, which a release crossing the
+    // note's own end makes, is no error and does nothing (PROTOCOL.md § 6.14.4).
+    QString m_ended;
     bool m_active = false;
     qlonglong m_pressedAt = 0;
     qlonglong m_startedAt = 0;
@@ -508,6 +513,7 @@ public:
     void finish(const QString &id, qlonglong durationMs, const QString &outcome, const QString &reason = QString())
     {
         m_active = false;
+        m_ended = id;
         QJsonArray dropped;
         for (const QVariant &drop : qAsConst(m_drops))
             dropped.append(QJsonObject::fromVariantMap(drop.toMap()));
@@ -532,6 +538,7 @@ public slots:
     {
         record(QStringLiteral("Arm %1").arg(pressedAt));
         if (m_answer == QLatin1String("busy")) {
+            m_errors << QStringLiteral("Busy");
             sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.VoiceNotes.Error.Busy"),
                            QStringLiteral("a note is already recording"));
             return QString();
@@ -600,6 +607,7 @@ public slots:
         if (!known(id))
             return;
         m_active = false;
+        m_ended = id;
         publish(QString());
     }
 
@@ -617,11 +625,15 @@ private:
         m_times << double(QDateTime::currentMSecsSinceEpoch());
     }
 
-    // The error that ioslink answers an unknown id with.
+    // Whether a call's note records. A call for the note that ended last is
+    // no error and does nothing; NotFound is for an id that no note had.
     bool known(const QString &id)
     {
         if (m_active && id == m_id)
             return true;
+        if (!id.isEmpty() && id == m_ended)
+            return false;
+        m_errors << QStringLiteral("NotFound %1").arg(id);
         sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.VoiceNotes.Error.NotFound"),
                        QStringLiteral("no note %1").arg(id));
         return false;
@@ -653,6 +665,8 @@ class VoiceNotesStandIn : public QObject
     // Every call so far, as "Method argument...", and the time of each.
     Q_PROPERTY(QStringList calls READ calls)
     Q_PROPERTY(QVariantList times READ times)
+    // The errors it answered with: "Busy", or "NotFound <id>".
+    Q_PROPERTY(QStringList errors READ errors)
     // The id of the note that records, or "".
     Q_PROPERTY(QString recording READ recording)
     Q_PROPERTY(QString state READ state)
@@ -681,6 +695,7 @@ public:
     void setDrops(const QVariantList &drops) { m_object.m_drops = drops; }
     QStringList calls() const { return m_object.m_calls; }
     QVariantList times() const { return m_object.m_times; }
+    QStringList errors() const { return m_object.m_errors; }
     QString recording() const { return m_object.m_active ? m_object.m_id : QString(); }
     QString state() const { return m_object.m_state; }
 
@@ -703,6 +718,7 @@ public:
     {
         m_object.m_calls.clear();
         m_object.m_times.clear();
+        m_object.m_errors.clear();
     }
 
     // Sets State as it stands and tells it, for a scene that draws one.

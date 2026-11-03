@@ -11,13 +11,15 @@
  *   bars' heights from the levels, the countdown, and the line for each end.
  * - The screens, fed through the bus as ioslink feeds them: recording; the
  *   last 30 s; saved, with the iPhone and without; a drop past the cache's cap;
- *   the 10 min limit; too short; storage full and no microphone; the second
- *   between the release and the outcome; and ioslink gone. Each is a
- *   screenshot of the overlay alone at 454 × 454, checked against the circle
- *   12 px inside the round edge (nothing that isn't black beyond it), and for
- *   what it must show: the red dot or the green check, the red or grey bars,
- *   the line's colour, the "now" line. The mockup's own levels, the synthetic
- *   test note with the watch's room noise, draw the bars.
+ *   the 10 min limit; a note that alone passed the cache's cap, ended early;
+ *   a note cut short by a lost microphone, and kept; too short; storage full
+ *   and no microphone; the second between the release and the outcome; and
+ *   ioslink gone. Each is a screenshot of the overlay alone at 454 × 454,
+ *   checked against the circle 12 px inside the round edge (nothing that isn't
+ *   black beyond it), and for what it must show: the red dot or the green
+ *   check, the red or grey bars, the line's colour, the "now" line. The
+ *   mockup's own levels, the synthetic test note with the watch's room noise,
+ *   draw the bars.
  * - How it moves: the row slides 10 px over each 100 ms, or steps; the end shows
  *   for 2 s, 2.5 s for a drop, and fades for 250 ms; the countdown.
  * - The hold, with the button's real events through a FIFO, and the stand-ins
@@ -108,7 +110,7 @@ Scene {
         id: sheet
         x: desktop.width + 100
         columns: 4
-        title: "The recording screen, at 454 × 454: recording, the last 30 s, the second before the outcome, saved, saved with the iPhone away, a drop, the limit, too short, storage full, no microphone, ioslink gone, and a hold live"
+        title: "The recording screen, at 454 × 454: recording, the last 30 s, the second before the outcome, saved, saved with the iPhone away, a drop, the limit, a note past the cache's cap, a microphone lost, too short, storage full, no microphone, ioslink gone, and a hold live"
     }
 
     property var files: []
@@ -370,6 +372,15 @@ Scene {
             expectEqual(View.ending({outcome: "dropped", dropped: [{}]}, 3, true).text, "Saved · dropped", "a drop with no time: no time")
             expectEqual(View.ending({outcome: "limit", dropped: [{startedAt: Date.UTC(2026, 10, 3, 18, 2)}]}, 3, true).text, "Saved · 18:02 dropped", "a drop is told whatever else the note did")
             expectEqual(View.ending({outcome: "limit"}, 3, true).text, "10 min limit · saved", "the 10 min limit")
+            expectEqual(View.ending({outcome: "limit", reason: "storage"}, 3, true), {text: "Storage full · saved", amber: true, check: true, dim: false},
+                        "a note alone past the cache's cap ends as a limit before 10:00: it says storage, in amber")
+            expectEqual(View.ending({outcome: "saved", reason: "microphone"}, 3, true), {text: "Microphone lost · saved", amber: true, check: true, dim: false},
+                        "a note cut short by its microphone and kept")
+            expectEqual(View.ending({outcome: "saved", reason: "encoder"}, 3, true), {text: "Encoder failed · saved", amber: true, check: true, dim: false},
+                        "and by its encoder")
+            expectEqual(View.ending({outcome: "saved", reason: "microphone", dropped: [{startedAt: Date.UTC(2026, 10, 3, 8, 2)}]}, 3, true).text, "Saved · 08:02 dropped",
+                        "a drop is told before an early end")
+            expectEqual(View.ending({outcome: "failed", reason: "encoder"}, 0, true).text, "Couldn't record", "an encoder that gave nothing")
             expectEqual(View.ending({outcome: "tooShort"}, 3, true), {text: "Too short", amber: false, check: false, dim: true}, "too short")
             expectEqual(View.ending({outcome: "failed", reason: "storage"}, 0, true), {text: "Watch storage full", amber: true, check: false, dim: true}, "storage full")
             expectEqual(View.ending({outcome: "failed", reason: "microphone"}, 0, true).text, "Microphone unavailable", "no microphone")
@@ -447,6 +458,22 @@ Scene {
                 ended({id: "N6", outcome: "limit", durationMs: 600000, dropped: [], reason: ""}, {}, function() {
                     screen("voicenote-limit", "The 10 min limit", {duration: "10:00", line: "10 min limit · saved"},
                            {check: true, bars: "grey"}, done)
+                })
+            })
+        },
+        function(done) {
+            recording("N6b", 200000, function() {
+                ended({id: "N6b", outcome: "limit", durationMs: 200000, dropped: [], reason: "storage"}, {}, function() {
+                    screen("voicenote-limit-storage", "A note past the cap: storage full", {duration: "3:20", line: "Storage full · saved"},
+                           {check: true, bars: "grey", amber: true}, done)
+                })
+            })
+        },
+        function(done) {
+            recording("N6c", 20000, function() {
+                ended({id: "N6c", outcome: "saved", durationMs: 20000, dropped: [], reason: "microphone"}, {}, function() {
+                    screen("voicenote-microphone-lost", "The microphone lost, the note kept", {duration: "0:20", line: "Microphone lost · saved"},
+                           {check: true, bars: "grey", amber: true}, done)
                 })
             })
         },
@@ -843,8 +870,9 @@ Scene {
                             check(true, "the leases end with the screen though the button is still down")
                             release(test.bootMs())
                             waitFor(function() { return voicenotes.calls.length >= 3 }, 5000, "the release still calls Stop", function() {
-                                expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "ioslink answers that with NotFound, which is only logged")
+                                expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "the release still calls Stop, past the note's own end")
                                 after(300, function() {
+                                    expectEqual(voicenotes.errors, [], "ioslink takes it with no error, as it does for the note that ended last")
                                     expectEqual(overlay.phase, "idle", "and the screen stays away")
                                     done()
                                 })
@@ -852,6 +880,18 @@ Scene {
                         })
                     })
                 })
+            })
+        },
+
+        // A call for an id that no note had is NotFound: the hold's failed calls
+        // are only logged, and nothing else changes.
+        function(done) {
+            reset()
+            hold.fire("Cancel", [{type: "s", value: "NOBODY"}])
+            waitFor(function() { return voicenotes.errors.length > 0 }, 5000, "ioslink answers NotFound", function() {
+                expectEqual(voicenotes.errors, ["NotFound NOBODY"], "to an id that no note had")
+                expectEqual({phase: overlay.phase, held: hold.keepaliveHeld}, {phase: "idle", held: false}, "and nothing else stirs")
+                done()
             })
         },
 

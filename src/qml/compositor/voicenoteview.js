@@ -115,17 +115,28 @@ function count(n) {
 //   {text, amber, check, dim}
 // check: the green check in place of the dot; dim: the duration greyed.
 // A drop is told whatever else the note did, so that it's never silent.
+// `last.reason` says why a note couldn't start, or ended early and was kept
+// (PROTOCOL.md § 6.14.4): "storage", "microphone" or "encoder". A note that
+// ended early says so in amber, as its duration is short of what was held.
 function ending(last, onWatch, connected) {
     var drops = last && last.dropped ? last.dropped : []
     var outcome = last ? last.outcome : ""
+    var reason = last && last.reason ? last.reason : ""
     var saved = outcome === "saved" || outcome === "dropped" || outcome === "limit"
     if (saved && drops.length > 0)
         return {text: "Saved · " + dropped(drops) + "dropped", amber: true, check: true, dim: false}
     switch (outcome) {
     case "saved":
+        if (reason === "microphone")
+            return {text: "Microphone lost · saved", amber: true, check: true, dim: false}
+        if (reason === "encoder")
+            return {text: "Encoder failed · saved", amber: true, check: true, dim: false}
         return {text: connected ? "Saved · sending" : "Saved · " + count(onWatch) + " on watch",
                 amber: false, check: true, dim: false}
     case "limit":
+        // A note alone past the cache's cap ends before 10:00.
+        if (reason === "storage")
+            return {text: "Storage full · saved", amber: true, check: true, dim: false}
         return {text: "10 min limit · saved", amber: false, check: true, dim: false}
     case "dropped":
         // Said to be dropped, with none listed.
@@ -133,7 +144,6 @@ function ending(last, onWatch, connected) {
     case "tooShort":
         return {text: "Too short", amber: false, check: false, dim: true}
     }
-    var reason = last ? last.reason : ""
     if (reason === "storage")
         return {text: "Watch storage full", amber: true, check: false, dim: true}
     if (reason === "microphone")
