@@ -32,6 +32,13 @@
  *   which mce turns on; ioslink going away mid-note; its limit at 10:00 with
  *   the button still held; ioslink never answering, ended by the release's
  *   watchdog and by the hard limit; and a second hold over the first's screen.
+ * - Where a hold records, with compositor.qml's wiring of the hold and of the
+ *   rings face's single press, and the scene's state in place of the compositor's:
+ *   the home's face page, whatever the face shows and whatever the display does.
+ *   A short press on the rings face opens its Timer or Stopwatch app after the
+ *   release, and a long press there records and opens none; a hold records on
+ *   every face, with the display on, ambient and off; and never in an app or on
+ *   another panel, the display off included, where it calls nothing at all.
  * - What the screen costs under emulation: frames and CPU for a second of
  *   it, with the bars sliding and stepping, against the same with it hidden.
  */
@@ -41,6 +48,8 @@ import Nemo.DBus 2.0
 import org.asteroid.launcher 1.0
 import "qrc:/qml/compositor"
 import "qrc:/qml/voicenoteview.js" as View
+import "qrc:/qml/voicebutton.js" as VoiceButton
+import "qrc:/qml/ringsbutton.js" as RingsButton
 
 Scene {
     id: desktop
@@ -74,7 +83,27 @@ Scene {
 
     // Every call that the hold makes, in the order it sends them.
     property var trace: []
-    property bool lit: true
+    // What compositor.qml reads: the display, the home, where the panels are,
+    // and the view of the rings that the face shows; and the apps that the
+    // single press opened.
+    property bool displayOn: true
+    property bool ambient: false
+    property bool homeActive: true
+    property int panelX: 0
+    property int panelY: 0
+    property string ringsView: ""
+    property var opened: []
+
+    // The compositor's state as a test sets it: what it names, the rest as the
+    // face's page has it, with the display on.
+    function scene(state) {
+        desktop.displayOn = state.displayOn !== undefined ? state.displayOn : true
+        desktop.ambient = state.ambient !== undefined ? state.ambient : false
+        desktop.homeActive = state.homeActive !== undefined ? state.homeActive : true
+        desktop.panelX = state.panelX !== undefined ? state.panelX : 0
+        desktop.panelY = state.panelY !== undefined ? state.panelY : 0
+        desktop.ringsView = state.ringsView !== undefined ? state.ringsView : ""
+    }
 
     VoiceNoteOverlay {
         id: overlay
@@ -86,7 +115,7 @@ Scene {
         id: hold
         overlay: overlay
         ioslinkUp: voiceNotesBus.status === DBusInterface.Available
-        displayLit: desktop.lit
+        displayLit: desktop.displayOn && !desktop.ambient
         callMce: function(method, args, callback) {
             desktop.trace.push("mce " + method + (typeof args === "string" ? " " + args : ""))
             mceRequest.call(method, args, callback)
@@ -97,13 +126,23 @@ Scene {
         }
     }
 
-    // The button's hold, wired as compositor.qml wires it, with its guard
-    // allowing a note.
+    // The button, wired as compositor.qml wires it: the hold through voicebutton.js'
+    // guard, and the single press through ringsbutton.js, with the scene's state in
+    // place of the compositor's.
     ButtonDoubleClick {
         id: button
-        onHoldStarted: hold.start(pressedAt)
+        onHoldStarted: {
+            if (VoiceButton.canRecord(desktop.displayOn, desktop.ambient, desktop.homeActive, desktop.panelX, desktop.panelY))
+                hold.start(pressedAt)
+        }
         onHoldConfirmed: hold.confirm()
         onHoldEnded: hold.end(releasedAt, confirmed)
+        onSingleClicked: {
+            var app = RingsButton.app(desktop.displayOn, desktop.ambient, desktop.homeActive, desktop.panelX, desktop.panelY,
+                                      desktop.ringsView)
+            if (app !== "")
+                desktop.opened.push(app)
+        }
     }
 
     ContactSheet {
@@ -538,7 +577,7 @@ Scene {
             button.devices = [fifo]
             overlay.slide = true
             overlay.nowMs = function() { return Date.now() }
-            desktop.lit = true
+            desktop.scene({})
             voicenotes.answer = "id"
             voicenotes.outcome = "auto"
             reset()
@@ -767,7 +806,7 @@ Scene {
 
         // The display off: mce turns it on at 0.5 s.
         function(done) {
-            desktop.lit = false
+            desktop.scene({displayOn: false})
             reset()
             press(test.bootMs())
             waitFor(function() { return overlay.phase === "live" }, 5000, "the screen shows", function() {
@@ -777,7 +816,7 @@ Scene {
                         expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_display_state_on", "mce req_display_blanking_pause",
                                                               "ioslink Keep NOTE", "ioslink Stop NOTE <time>", stopCall, "mce req_display_cancel_blanking_pause"],
                                     "with the display off: the screen, then mce's wake, then the pause and Keep")
-                        desktop.lit = true
+                        desktop.scene({})
                         done()
                     })
                 })
@@ -971,6 +1010,140 @@ Scene {
                     })
                 })
             })
+        },
+
+        // The rings face, which the user's watch face becomes while timers or
+        // stopwatches run: a short press opens its app, after the release, and
+        // is a click to ioslink; a long press records, and opens no app.
+        function(done) {
+            desktop.scene({ringsView: "timers"})
+            desktop.opened = []
+            reset()
+            desktop.phaseLog = []
+            press(test.bootMs())
+            after(90, function() {
+                release(test.bootMs())
+                after(900, function() {
+                    expectEqual(desktop.opened, ["sonic-timer"], "a short press on the rings face, timers running, opens the Timer app, after the release")
+                    expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Cancel NOTE"], "and is a click to ioslink: Arm, then Cancel")
+                    expectEqual(desktop.phaseLog.map(function(p) { return p.phase }), ["armed", "idle"], "no screen")
+                    done()
+                })
+            })
+        },
+        function(done) {
+            desktop.scene({ringsView: "stopwatches"})
+            desktop.opened = []
+            reset()
+            press(test.bootMs())
+            after(90, function() {
+                release(test.bootMs())
+                after(900, function() {
+                    expectEqual(desktop.opened, ["sonic-stopwatch"], "stopwatches running: the Stopwatch app")
+                    done()
+                })
+            })
+        },
+        function(done) {
+            desktop.scene({ringsView: "timers"})
+            desktop.opened = []
+            reset()
+            desktop.phaseLog = []
+            press(test.bootMs())
+            waitFor(function() { return overlay.phase === "live" }, 5000, "a long press on the rings face records", function() {
+                after(400, function() {
+                    release(test.bootMs())
+                    waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
+                        after(800, function() {
+                            expectEqual(desktop.opened, [], "and opens no app, at the release or after it")
+                            expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "it recorded: Arm, Keep, Stop")
+                            settled(done)
+                        })
+                    })
+                })
+            })
+        },
+
+        // A hold records on every face the user's watch face has, with the
+        // display on, ambient and off. The face's mode is no input of the hold:
+        // only the rings' view is read, by the single press.
+        function(done) {
+            var cases = [
+                {face: "the music face's cover", display: "on", state: {}},
+                {face: "the rings face, timers running", display: "on", state: {ringsView: "timers"}},
+                {face: "the rings face, stopwatches running", display: "on", state: {ringsView: "stopwatches"}},
+                {face: "the door glyph", display: "on", state: {}},
+                {face: "the plain digital face", display: "on", state: {}},
+                {face: "the music face's cover", display: "ambient", state: {ambient: true}},
+                {face: "the rings face, timers running", display: "ambient", state: {ambient: true, ringsView: "timers"}},
+                {face: "the rings face, stopwatches running", display: "off", state: {displayOn: false, ringsView: "stopwatches"}},
+                {face: "the plain digital face", display: "off", state: {displayOn: false}},
+                {face: "the door glyph", display: "off and ambient", state: {displayOn: false, ambient: true}}
+            ]
+            function next(i) {
+                if (i === cases.length) {
+                    desktop.scene({})
+                    done()
+                    return
+                }
+                var c = cases[i]
+                var label = "on " + c.face + ", the display " + c.display
+                desktop.scene(c.state)
+                desktop.opened = []
+                reset()
+                press(test.bootMs())
+                waitFor(function() { return overlay.phase === "live" }, 5000, "a hold records " + label, function() {
+                    after(300, function() {
+                        release(test.bootMs())
+                        waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
+                            expectEqual({calls: stripped(voicenotes.calls), opened: desktop.opened},
+                                        {calls: ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], opened: []},
+                                        label + ": Arm, Keep, Stop, and no app")
+                            if (!(c.state.displayOn === undefined && c.state.ambient === undefined))
+                                check(mce.calls.indexOf("req_display_state_on") !== -1, label + ": mce turns the display on")
+                            settled(function() { after(450, function() { next(i + 1) }) })
+                        })
+                    })
+                })
+            }
+            next(0)
+        },
+
+        // Never in an app, nor on another panel, with the screen off too: a
+        // hold does nothing at all, and calls nothing.
+        function(done) {
+            var cases = [
+                {where: "an app in front, the display on", state: {homeActive: false}},
+                {where: "an app in front, the display off", state: {homeActive: false, displayOn: false}},
+                {where: "an app in front, ambient", state: {homeActive: false, ambient: true}},
+                {where: "the app list", state: {panelY: 1}},
+                {where: "the app list, the display off", state: {panelY: 1, displayOn: false}},
+                {where: "Today", state: {panelX: 1}},
+                {where: "the quick panel", state: {panelY: -1}},
+                {where: "the notifications, the display off", state: {panelX: -1, displayOn: false}}
+            ]
+            function next(i) {
+                if (i === cases.length) {
+                    desktop.scene({})
+                    done()
+                    return
+                }
+                var c = cases[i]
+                desktop.scene(c.state)
+                reset()
+                desktop.phaseLog = []
+                press(test.bootMs())
+                after(900, function() {
+                    release(test.bootMs())
+                    after(300, function() {
+                        expectEqual({trace: desktop.trace, mce: mce.calls, ioslink: voicenotes.calls, phases: desktop.phaseLog},
+                                    {trace: [], mce: [], ioslink: [], phases: []},
+                                    "in " + c.where + " a hold of 0.9 s does nothing and calls nothing")
+                        after(450, function() { next(i + 1) })
+                    })
+                })
+            }
+            next(0)
         },
 
         // What it costs, under emulation. Qt's software renderer, in QEMU: only
