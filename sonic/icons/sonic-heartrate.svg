@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Heart Rate, Sonic Screwdriver's: a red heart with a pulse line, and a blue drop for blood oxygen. Sonic Screwdriver's launcher icons, sonic/icons/. -->
+  <circle cx="128" cy="128" r="124" fill="#2e0c0b"/>
+  <circle cx="128" cy="128" r="122.5" fill="none" stroke="#ff453a" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M116 196 C58 157 40 127 40 101 C40 76 59 58 82 58 C98 58 110 67 116 80 C122 67 134 58 150 58 C173 58 192 76 192 101 C192 127 174 157 116 196 Z" fill="#ff453a"/>
+  <path d="M54 122 L86 122 L99 100 L115 146 L131 108 L141 126 L160 126" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M180 110 C180 110 145 151 145 174 C145 194 161 210 180 210 C199 210 215 194 215 174 C215 151 180 110 180 110 Z" fill="#2e0c0b"/>
+  <path d="M180 126 C180 126 155 156 155 174 C155 188 166 199 180 199 C194 199 205 188 205 174 C205 156 180 126 180 126 Z" fill="#0a84ff"/>
+  <path d="M168 178 C168 186 173 191 180 192" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="6" stroke-linecap="round"/>
+</svg>

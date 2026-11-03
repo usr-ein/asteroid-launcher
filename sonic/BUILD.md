@@ -129,6 +129,9 @@ To uninstall completely:
   main repo's `clock/watch/`), the same as Sonic's timers and stopwatches
   through ioslink. The stock `asteroid-timer` and `asteroid-stopwatch` are
   hidden with the others.
+- **And Heart Rate,** `sonic-heartrate` (the main repo's `health/heartrate/`),
+  which measures the heart rate and then blood oxygen through the health
+  collector. The stock `asteroid-hrm` is hidden with the others.
 - **The list opens on Check-in:** once it has been left for the watch face, by
   a swipe, an app closing or the display going off, it goes back to its first
   app. Coming back from a minimised app keeps the page.
@@ -147,7 +150,9 @@ To uninstall completely:
   Weather's disc is a blue sky, Flashlight's a dark grey; `sonic-weather.svg`
   is an alias of `asteroid-weather.svg`, so both Weathers wear it, and
   `sonic-timer.svg` and `sonic-stopwatch.svg` are the Timer's and the
-  Stopwatch's, the same way. Qt draws them with
+  Stopwatch's, the same way. `sonic-heartrate.svg` is a drawing of its own:
+  Heart rate's red heart and pulse line, with a blue drop for blood oxygen;
+  the stock app keeps `asteroid-hrm.svg`. Qt draws them with
   its SVG Tiny renderer, so they use no clip paths, masks, filters or CSS.
 - **The list:** each page shows the app's logo, the size of the stock icon
   circle, with its name under it, smaller and in sentence case ("Alarm
@@ -165,7 +170,7 @@ To uninstall completely:
 ### Hiding apps
 
 ```sh
-sonic/hide-apps.sh                  # hide Music, Calculator, Agenda, Settings, and the stock Weather, Timer and Stopwatch
+sonic/hide-apps.sh                  # hide Music, Calculator, Agenda, Settings, and the stock Weather, Timer, Stopwatch and Heart Rate
 sonic/hide-apps.sh <id>...          # hide these apps, by desktop file ID (asteroid-music)
 sonic/hide-apps.sh --show <id>...   # show these apps again
 sonic/hide-apps.sh --undo           # show again every app the script hid
