@@ -20,6 +20,9 @@
 #include <QHash>
 #include <QGuiApplication>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -28,7 +31,10 @@
 #include <QTranslator>
 #include <QVariantMap>
 
+#include <cmath>
 #include <cstdio>
+#include <ctime>
+#include <functional>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <unistd.h>
@@ -75,6 +81,53 @@ public:
             }
         }
         return area.isEmpty() ? 0 : double(matching) / (area.width() * area.height());
+    }
+
+    // The boot-time clock now, in ms: the clock that the kernel stamps input
+    // events with, and that ButtonDoubleClick counts their age on.
+    Q_INVOKABLE qint64 bootMs() const
+    {
+        struct timespec now;
+        ::clock_gettime(CLOCK_BOOTTIME, &now);
+        return qint64(now.tv_sec) * 1000 + qint64(now.tv_nsec) / 1000000;
+    }
+
+    // The CPU time that this process has used so far, in ms.
+    Q_INVOKABLE double cpuMs() const
+    {
+        struct timespec used;
+        ::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &used);
+        return double(used.tv_sec) * 1000 + double(used.tv_nsec) / 1000000;
+    }
+
+    // The pixels of a screenshot farther than `radius` from (cx, cy) that
+    // aren't black, with some channel above `threshold` (0 to 255): {"count":
+    // how many, "x", "y" and "value": the first, "value" its brightest
+    // channel}, or {"count": -1} when the file can't be read.
+    Q_INVOKABLE QVariantMap outside(const QString &file, double cx, double cy, double radius, int threshold)
+    {
+        const QImage image(file);
+        if (image.isNull())
+            return {{QStringLiteral("count"), -1}};
+        int count = 0, firstX = -1, firstY = -1, firstValue = 0;
+        for (int y = 0; y < image.height(); ++y) {
+            for (int x = 0; x < image.width(); ++x) {
+                const double dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+                if (dx * dx + dy * dy <= radius * radius)
+                    continue;
+                const QColor got = image.pixelColor(x, y);
+                const int value = qMax(got.red(), qMax(got.green(), got.blue()));
+                if (value <= threshold)
+                    continue;
+                if (count++ == 0) {
+                    firstX = x;
+                    firstY = y;
+                    firstValue = value;
+                }
+            }
+        }
+        return {{QStringLiteral("count"), count}, {QStringLiteral("x"), firstX},
+                {QStringLiteral("y"), firstY}, {QStringLiteral("value"), firstValue}};
     }
 
     // Writes input events, as the kernel's evdev does, to a file such as a
@@ -304,6 +357,389 @@ private:
     int m_stops = 0;
 };
 
+
+// mce's request interface on the system bus, which is the test bus here, as
+// the launcher's VoiceNoteHold calls it: the CPU keepalive, and the display's
+// wake and blanking pause. It records each call, with its time.
+class MceObject : public QObject
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "com.nokia.mce.request")
+
+public:
+    QStringList m_calls;
+    QVariantList m_times;
+    int m_period = 60;
+
+public slots:
+    Q_SCRIPTABLE int req_cpu_keepalive_period(const QString &session)
+    {
+        record(QStringLiteral("req_cpu_keepalive_period %1").arg(session));
+        return m_period;
+    }
+    Q_SCRIPTABLE bool req_cpu_keepalive_start(const QString &session)
+    {
+        record(QStringLiteral("req_cpu_keepalive_start %1").arg(session));
+        return true;
+    }
+    Q_SCRIPTABLE bool req_cpu_keepalive_stop(const QString &session)
+    {
+        record(QStringLiteral("req_cpu_keepalive_stop %1").arg(session));
+        return true;
+    }
+    Q_SCRIPTABLE QString req_display_state_on()
+    {
+        record(QStringLiteral("req_display_state_on"));
+        return QStringLiteral("on");
+    }
+    Q_SCRIPTABLE void req_display_blanking_pause() { record(QStringLiteral("req_display_blanking_pause")); }
+    Q_SCRIPTABLE void req_display_cancel_blanking_pause()
+    {
+        record(QStringLiteral("req_display_cancel_blanking_pause"));
+    }
+
+private:
+    void record(const QString &call)
+    {
+        m_calls << call;
+        m_times << double(QDateTime::currentMSecsSinceEpoch());
+    }
+};
+
+// The stand-in for mce that a scene drives, as `mce`.
+class MceStandIn : public QObject
+{
+    Q_OBJECT
+    // Every call so far, as "method argument", and the time of each, in ms
+    // since the epoch.
+    Q_PROPERTY(QStringList calls READ calls)
+    Q_PROPERTY(QVariantList times READ times)
+    // What req_cpu_keepalive_period answers, in seconds.
+    Q_PROPERTY(int period READ period WRITE setPeriod)
+
+public:
+    QStringList calls() const { return m_object.m_calls; }
+    QVariantList times() const { return m_object.m_times; }
+    int period() const { return m_object.m_period; }
+    void setPeriod(int period) { m_object.m_period = period; }
+
+    Q_INVOKABLE bool start()
+    {
+        return m_bus.registerObject(path, &m_object, QDBusConnection::ExportScriptableSlots)
+            && m_bus.registerService(service);
+    }
+    Q_INVOKABLE void stop()
+    {
+        m_bus.unregisterService(service);
+        m_bus.unregisterObject(path);
+    }
+    Q_INVOKABLE void clear()
+    {
+        m_object.m_calls.clear();
+        m_object.m_times.clear();
+    }
+
+private:
+    const QString service = QStringLiteral("com.nokia.mce");
+    const QString path = QStringLiteral("/com/nokia/mce/request");
+    QDBusConnection m_bus = QDBusConnection::connectToBus(QDBusConnection::SystemBus, QStringLiteral("mce"));
+    MceObject m_object;
+};
+
+// ioslink's VoiceNotes interface on the test bus, as Sonic Screwdriver's
+// bridge PROTOCOL.md § 6.14.4 defines it and the launcher's recording screen
+// and button read it: what's exported. It behaves as ioslink does, with the
+// answers a test chooses.
+class VoiceNotesObject : public QObject, protected QDBusContext
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.sonicscrewdriver.ioslink.VoiceNotes")
+    Q_PROPERTY(QString State READ state SCRIPTABLE true)
+
+public:
+    QString state() const { return m_state; }
+
+    QString m_state = QStringLiteral("{\"onWatch\":0,\"cacheBytes\":0,\"capBytes\":0,\"connected\":false}");
+    // How an Arm ends: "id", a note; "refused", "" with State's reason;
+    // "busy", the Busy error; "hang", no answer at all.
+    QString m_answer = QStringLiteral("id");
+    QString m_refusal = QStringLiteral("storage");
+    int m_armDelay = 0;
+    // How a Stop ends: "auto", saved or too short by the length; or "saved",
+    // "dropped", "limit", "tooShort" or "failed", as chosen.
+    QString m_outcome = QStringLiteral("auto");
+    int m_stopDelay = 80;
+    bool m_connected = true;
+    int m_onWatch = 1;
+    QVariantList m_drops;
+    QStringList m_calls;
+    QVariantList m_times;
+
+    QString m_id;
+    bool m_active = false;
+    qlonglong m_pressedAt = 0;
+    qlonglong m_startedAt = 0;
+    int m_serial = 0;
+    QJsonObject m_last;
+
+    // Sends State's change, as ioslink's PropertiesChanged does.
+    std::function<void(const QString &)> m_changed;
+
+    void publish(const QString &phase)
+    {
+        QJsonObject state;
+        if (m_active) {
+            state.insert(QStringLiteral("recording"),
+                         QJsonObject{{QStringLiteral("id"), m_id}, {QStringLiteral("startedAt"), double(m_startedAt)},
+                                     {QStringLiteral("phase"), phase}});
+        }
+        if (!m_last.isEmpty())
+            state.insert(QStringLiteral("last"), m_last);
+        state.insert(QStringLiteral("onWatch"), m_onWatch);
+        state.insert(QStringLiteral("cacheBytes"), 0);
+        state.insert(QStringLiteral("capBytes"), 0);
+        state.insert(QStringLiteral("connected"), m_connected);
+        m_state = QString::fromUtf8(QJsonDocument(state).toJson(QJsonDocument::Compact));
+        if (m_changed)
+            m_changed(m_state);
+    }
+
+    // A note's end: State's `last`, and no `recording`.
+    void finish(const QString &id, qlonglong durationMs, const QString &outcome, const QString &reason = QString())
+    {
+        m_active = false;
+        QJsonArray dropped;
+        for (const QVariant &drop : qAsConst(m_drops))
+            dropped.append(QJsonObject::fromVariantMap(drop.toMap()));
+        m_last = QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("outcome"), outcome},
+                             {QStringLiteral("durationMs"), double(durationMs)}, {QStringLiteral("dropped"), dropped},
+                             {QStringLiteral("reason"), reason}};
+        publish(QString());
+    }
+
+    // ioslink's own stop, at 10:00, while the button is still held.
+    void limit()
+    {
+        if (m_active)
+            finish(m_id, 600000, QStringLiteral("limit"));
+    }
+
+signals:
+    Q_SCRIPTABLE void Levels(const QString &id, uint fromMs, const QList<int> &centibels);
+
+public slots:
+    Q_SCRIPTABLE QString Arm(qlonglong pressedAt)
+    {
+        record(QStringLiteral("Arm %1").arg(pressedAt));
+        if (m_answer == QLatin1String("busy")) {
+            sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.VoiceNotes.Error.Busy"),
+                           QStringLiteral("a note is already recording"));
+            return QString();
+        }
+        if (m_answer == QLatin1String("hang")) {
+            setDelayedReply(true);
+            return QString();
+        }
+        QString id;
+        if (m_answer == QLatin1String("refused")) {
+            m_last = QJsonObject{{QStringLiteral("id"), QString()}, {QStringLiteral("outcome"), QStringLiteral("failed")},
+                                 {QStringLiteral("durationMs"), 0}, {QStringLiteral("dropped"), QJsonArray()},
+                                 {QStringLiteral("reason"), m_refusal}};
+            m_active = false;
+            publish(QString());
+        } else {
+            id = QStringLiteral("NOTE-%1").arg(++m_serial);
+            m_id = id;
+            m_active = true;
+            m_pressedAt = pressedAt;
+            // The press' boot-time stamp, on the wall clock.
+            const qlonglong age = qBound<qlonglong>(0, bootMs() - pressedAt, 5000);
+            m_startedAt = QDateTime::currentMSecsSinceEpoch() - age;
+            publish(QStringLiteral("armed"));
+        }
+        if (m_armDelay > 0) {
+            setDelayedReply(true);
+            const QDBusMessage request = message();
+            QDBusConnection bus = connection();
+            QTimer::singleShot(m_armDelay, this, [request, bus, id]() mutable {
+                bus.send(request.createReply(id));
+            });
+            return QString();
+        }
+        return id;
+    }
+
+    Q_SCRIPTABLE void Keep(const QString &id)
+    {
+        record(QStringLiteral("Keep %1").arg(id));
+        if (!known(id))
+            return;
+        publish(QStringLiteral("recording"));
+    }
+
+    Q_SCRIPTABLE void Stop(const QString &id, qlonglong releasedAt)
+    {
+        record(QStringLiteral("Stop %1 %2").arg(id).arg(releasedAt));
+        if (!known(id))
+            return;
+        const qlonglong duration = qMax<qlonglong>(0, releasedAt - m_pressedAt);
+        publish(QStringLiteral("saving"));
+        QTimer::singleShot(m_stopDelay, this, [this, id, duration] {
+            if (!m_active || m_id != id)
+                return;
+            QString outcome = m_outcome;
+            if (outcome == QLatin1String("auto"))
+                outcome = duration < 1000 ? QStringLiteral("tooShort") : QStringLiteral("saved");
+            finish(id, duration, outcome, outcome == QLatin1String("failed") ? QStringLiteral("storage") : QString());
+        });
+    }
+
+    Q_SCRIPTABLE void Cancel(const QString &id)
+    {
+        record(QStringLiteral("Cancel %1").arg(id));
+        if (!known(id))
+            return;
+        m_active = false;
+        publish(QString());
+    }
+
+private:
+    static qint64 bootMs()
+    {
+        struct timespec now;
+        ::clock_gettime(CLOCK_BOOTTIME, &now);
+        return qint64(now.tv_sec) * 1000 + qint64(now.tv_nsec) / 1000000;
+    }
+
+    void record(const QString &call)
+    {
+        m_calls << call;
+        m_times << double(QDateTime::currentMSecsSinceEpoch());
+    }
+
+    // The error that ioslink answers an unknown id with.
+    bool known(const QString &id)
+    {
+        if (m_active && id == m_id)
+            return true;
+        sendErrorReply(QStringLiteral("org.sonicscrewdriver.ioslink.VoiceNotes.Error.NotFound"),
+                       QStringLiteral("no note %1").arg(id));
+        return false;
+    }
+};
+
+// The stand-in for ioslink's VoiceNotes that a scene drives, as `voicenotes`.
+// It has a connection of its own, as ioslink is a process of its own, and is
+// the service org.sonicscrewdriver.ioslink on the test bus once it starts: a
+// scene starts either this or `ioslink`, the FindPhone one, not both.
+class VoiceNotesStandIn : public QObject
+{
+    Q_OBJECT
+    // How an Arm ends: "id", "refused", "busy" or "hang"; for "refused", why:
+    // "storage" or "microphone"; and how long its answer takes, in ms.
+    Q_PROPERTY(QString answer READ answer WRITE setAnswer)
+    Q_PROPERTY(QString refusal READ refusal WRITE setRefusal)
+    Q_PROPERTY(int armDelay READ armDelay WRITE setArmDelay)
+    // How a Stop ends, after stopDelay ms of "saving": "auto", "saved",
+    // "dropped", "limit", "tooShort" or "failed".
+    Q_PROPERTY(QString outcome READ outcome WRITE setOutcome)
+    Q_PROPERTY(int stopDelay READ stopDelay WRITE setStopDelay)
+    // What State says besides: whether the iPhone is connected, how many
+    // notes wait on the watch, and the notes dropped, each {startedAt,
+    // durationMs}.
+    Q_PROPERTY(bool connectedState READ connectedState WRITE setConnectedState)
+    Q_PROPERTY(int onWatch READ onWatch WRITE setOnWatch)
+    Q_PROPERTY(QVariantList drops READ drops WRITE setDrops)
+    // Every call so far, as "Method argument...", and the time of each.
+    Q_PROPERTY(QStringList calls READ calls)
+    Q_PROPERTY(QVariantList times READ times)
+    // The id of the note that records, or "".
+    Q_PROPERTY(QString recording READ recording)
+    Q_PROPERTY(QString state READ state)
+
+public:
+    VoiceNotesStandIn()
+    {
+        m_object.m_changed = [this](const QString &json) { changed(QStringLiteral("State"), json); };
+    }
+
+    QString answer() const { return m_object.m_answer; }
+    void setAnswer(const QString &answer) { m_object.m_answer = answer; }
+    QString refusal() const { return m_object.m_refusal; }
+    void setRefusal(const QString &refusal) { m_object.m_refusal = refusal; }
+    int armDelay() const { return m_object.m_armDelay; }
+    void setArmDelay(int ms) { m_object.m_armDelay = ms; }
+    QString outcome() const { return m_object.m_outcome; }
+    void setOutcome(const QString &outcome) { m_object.m_outcome = outcome; }
+    int stopDelay() const { return m_object.m_stopDelay; }
+    void setStopDelay(int ms) { m_object.m_stopDelay = ms; }
+    bool connectedState() const { return m_object.m_connected; }
+    void setConnectedState(bool connected) { m_object.m_connected = connected; }
+    int onWatch() const { return m_object.m_onWatch; }
+    void setOnWatch(int count) { m_object.m_onWatch = count; }
+    QVariantList drops() const { return m_object.m_drops; }
+    void setDrops(const QVariantList &drops) { m_object.m_drops = drops; }
+    QStringList calls() const { return m_object.m_calls; }
+    QVariantList times() const { return m_object.m_times; }
+    QString recording() const { return m_object.m_active ? m_object.m_id : QString(); }
+    QString state() const { return m_object.m_state; }
+
+    Q_INVOKABLE bool start()
+    {
+        return m_bus.registerObject(path, &m_object,
+                                    QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableProperties
+                                        | QDBusConnection::ExportScriptableSignals)
+            && m_bus.registerService(service);
+    }
+
+    // ioslink goes away.
+    Q_INVOKABLE void stop()
+    {
+        m_bus.unregisterService(service);
+        m_bus.unregisterObject(path);
+    }
+
+    Q_INVOKABLE void clear()
+    {
+        m_object.m_calls.clear();
+        m_object.m_times.clear();
+    }
+
+    // Sets State as it stands and tells it, for a scene that draws one.
+    Q_INVOKABLE void setState(const QString &json)
+    {
+        m_object.m_state = json;
+        changed(QStringLiteral("State"), json);
+    }
+
+    // The levels that ioslink signals: centibels, the RMS of 50 ms each from
+    // fromMs after the press.
+    Q_INVOKABLE void levels(const QString &id, uint fromMs, const QVariantList &centibels)
+    {
+        QList<int> values;
+        for (const QVariant &value : centibels)
+            values << value.toInt();
+        emit m_object.Levels(id, fromMs, values);
+    }
+
+    // ioslink stops the note itself, at 10:00, with the button still held.
+    Q_INVOKABLE void limit() { m_object.limit(); }
+
+private:
+    void changed(const QString &name, const QVariant &value)
+    {
+        QDBusMessage signal = QDBusMessage::createSignal(path, QStringLiteral("org.freedesktop.DBus.Properties"),
+                                                         QStringLiteral("PropertiesChanged"));
+        signal << QStringLiteral("org.sonicscrewdriver.ioslink.VoiceNotes") << QVariantMap{{name, value}} << QStringList();
+        m_bus.send(signal);
+    }
+
+    const QString service = QStringLiteral("org.sonicscrewdriver.ioslink");
+    const QString path = QStringLiteral("/org/sonicscrewdriver/ioslink");
+    QDBusConnection m_bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, QStringLiteral("voicenotes"));
+    VoiceNotesObject m_object;
+};
+
 // --load: compiles QML files as lipstick's HomeApplication does, the
 // compositor's first, in an engine that has only what the launcher has at
 // that point: its own types, registered as main() registers them, and the
@@ -355,9 +791,13 @@ int main(int argc, char **argv)
 
     TestTools tools;
     IoslinkStandIn ioslink;
+    MceStandIn mce;
+    VoiceNotesStandIn voicenotes;
     QQuickView view;
     view.rootContext()->setContextProperty(QStringLiteral("test"), &tools);
     view.rootContext()->setContextProperty(QStringLiteral("ioslink"), &ioslink);
+    view.rootContext()->setContextProperty(QStringLiteral("mce"), &mce);
+    view.rootContext()->setContextProperty(QStringLiteral("voicenotes"), &voicenotes);
     view.setResizeMode(QQuickView::SizeRootObjectToView);
     view.resize(454, 454);
     view.setSource(QUrl::fromLocalFile(QString::fromLocal8Bit(argv[1])));
