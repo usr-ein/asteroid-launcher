@@ -42,10 +42,11 @@
  *   list, the quick panel, Today and the notifications, and leaves them where
  *   they were; and with the display on or ambient it does nothing in an app or
  *   on another panel, and calls nothing at all.
- * - The waveform's mapping, against the fixtures of voicenote-levels.js: a quiet
- *   room is flat, speech is tall with gaps between the words, a busier room is
- *   lower than speech, and the floor is the room's whatever speech does to it;
- *   silence, speech and silence on the screen.
+ * - The waveform's mapping, against the fixtures of voicenote-levels.js: the
+ *   user's own note of 22:30 (its quiet room draws flat, his speech tall, the
+ *   gaps between his words showing), a quiet room, a busier room, quieter
+ *   speech; the floor is the room's whatever speech does to it; and the screen
+ *   at five moments of that note, as a contact sheet.
  * - The lockscreen, with a model of compositor.qml's lockscreenWanted: a note
  *   being held unlocks it at 0.5 s, before the display is woken and the
  *   blanking pause asked, and locks it again once the screen is away.
@@ -75,18 +76,13 @@ Scene {
     // may set a `program` instead: a function of the ms since the press, in dBFS.
     readonly property var noteLevels: Fixtures.decode(Fixtures.SPEECH)
     property var program: null
-    readonly property var quietRoom: Fixtures.decode(Fixtures.ROOM_QUIET)
+    readonly property var note2230: Fixtures.decode(Fixtures.NOTE_2230)
 
-    // The program of a note that is silent, then speaks, then is silent again:
-    // 1.7 s of the synthetic quiet room, 1.4 s of the speech note with a gap in
-    // the middle of it (its levels 644 to 671), and the room again.
-    function silenceSpeechSilence(t) {
+    // The user's own note of 22:30 as a program: its levels, and the room's
+    // after the end.
+    function noteOf2230(t) {
         var i = Math.floor(t / 50)
-        if (i < 34)
-            return quietRoom[i]
-        if (i < 62)
-            return noteLevels[644 + i - 34]
-        return quietRoom[i - 28]
+        return i < note2230.length ? note2230[i] : -60
     }
 
     // What compositor.qml has, with the harness' stand-ins behind it.
@@ -191,6 +187,14 @@ Scene {
         x: desktop.width + 100
         columns: 4
         title: "The recording screen, at 454 × 454: recording, silence then speech then silence, the last 30 s, the second before the outcome, saved, saved with the iPhone away, a drop, the limit, a note past the cache's cap, a microphone lost, too short, storage full, no microphone, ioslink gone, and a hold live"
+    }
+
+    ContactSheet {
+        id: sheetNote
+        x: desktop.width + 100
+        y: 1800
+        columns: 5
+        title: "The user's own note of 22:30 on the recording screen, whole through the view's floor and its curve, at five moments of it: speech, then the room begins, the quiet room, then speech begins, and speech"
     }
 
     property var files: []
@@ -311,14 +315,14 @@ Scene {
     property double now: 0
     property int serial: 0
 
-    function recording(id, elapsed, then) {
+    function recording(id, elapsed, then, from) {
         overlay.slide = false
         overlay.nowMs = function() { return desktop.now }
         overlay.arm()
         overlay.begin(id)
         voicenotes.setState(JSON.stringify({recording: {id: id, startedAt: desktop.now - elapsed, phase: "recording"},
                                             onWatch: 1, connected: true, seq: ++desktop.serial}))
-        sendLevels(id, elapsed - 4000, elapsed)
+        sendLevels(id, from !== undefined ? from : elapsed - 4000, elapsed)
         var last = Math.floor((elapsed - 50) / 100)
         waitFor(function() { return overlay.startedAt !== 0 && View.lastBar(overlay.bars) >= last - 1 }, 5000,
                 "the screen has State's clock and the levels", function() {
@@ -355,9 +359,11 @@ Scene {
         var red = share(116, 214, 224, 116, "#ff453a")
         var grey = share(116, 214, 224, 116, "#4a505a", 20)
         if (spec.bars === "red")
-            check(red > 0.04 && grey < 0.005, name + ": red bars (" + red.toFixed(3) + " red, " + grey.toFixed(3) + " grey)")
+            check(red > (spec.tall === true ? 0.08 : 0.04) && grey < 0.005, name + ": red bars (" + red.toFixed(3) + " red, " + grey.toFixed(3) + " grey)")
         else if (spec.bars === "grey")
             check(grey > 0.02 && red < 0.005, name + ": grey bars, frozen (" + grey.toFixed(3) + " grey, " + red.toFixed(3) + " red)")
+        else if (spec.bars === "flatred")
+            check(red > 0.02 && red < 0.07 && grey < 0.005, name + ": the room's bars, flat and red (" + red.toFixed(3) + " red, " + grey.toFixed(3) + " grey)")
         else if (spec.bars === "flat")
             check(grey > 0.003 && grey < 0.02 && red < 0.005, name + ": the room's bars, flat and grey, frozen (" + grey.toFixed(3) + " grey, " + red.toFixed(3) + " red)")
         else
@@ -430,17 +436,21 @@ Scene {
         function(done) {
             expectEqual([View.clock(0), View.clock(999), View.clock(42300), View.clock(247000), View.clock(599999), View.clock(600000), View.clock(700000)],
                         ["0:00", "0:00", "0:42", "4:07", "9:59", "10:00", "10:00"], "the duration: m:ss, from 0:00 to 9:59, then 10:00")
-            expectEqual([View.barHeight(-60, -52), View.barHeight(-44, -52), View.barHeight(-38.5, -52), View.barHeight(-33, -52), View.barHeight(0, -52)].map(Math.round),
-                        [6, 6, 53, 100, 100], "a bar is flat up to 8 dB over the floor, 100 px from -33 dBFS, and an S-curve between: 53 px in the middle, no more or less")
-            expectEqual([View.barHeight(-44, -58), View.barHeight(-44, -52), View.barHeight(-44)].map(Math.round), [33, 6, 6],
-                        "it is measured from the room's floor: -44 dBFS is 33 px over a quiet room's, flat over a usual one's, and the floor is -52 until the note says otherwise")
+            expectEqual([View.barHeight(-60, -52), View.barHeight(-44, -52), View.barHeight(-35.5, -52), View.barHeight(-27, -52), View.barHeight(0, -52)].map(Math.round),
+                        [6, 6, 53, 100, 100], "a bar is flat up to 8 dB over the floor, 100 px from -27 dBFS, and an S-curve between: 53 px in the middle, no more or less")
+            expectEqual([View.barHeight(-44, -58), View.barHeight(-44, -52), View.barHeight(-44)].map(Math.round), [22, 6, 6],
+                        "it is measured from the room's floor: -44 dBFS is 22 px over a quiet room's, flat over a usual one's, and the floor is -52 until the note says otherwise")
             var bars = []
             View.addLevels(bars, 200, [-5000, -3000, -4000])
             View.addLevels(bars, 450, [-2500])
-            expectEqual([bars[2], bars[3], bars[4], bars[5]], [-30, -40, -25, undefined],
-                        "a bar takes the louder of its two 50 ms levels: 200 and 250 ms are one, 300 ms another, and one level alone is a bar")
-            expectEqual(View.heights(bars, 4, 5).map(Math.round), [100, 34, 100, 0, 0],
+            expectEqual([bars[2], bars[3], bars[4], bars[5]], [-40, -40, -25, undefined],
+                        "a bar is the mean in dB of its two 50 ms levels: 200 and 250 ms are one, 300 ms another, and one level alone is a bar until its other comes")
+            expectEqual(View.heights(bars, 4, 5).map(Math.round), [100, 19, 19, 0, 0],
                         "the heights run back from the newest bar, over each one's floor, and 0 where there is no level")
+            View.addLevels(bars, 350, [-3000])
+            expectEqual(bars[3], -35, "the other level of a bar comes: -40 and -30 are -35")
+            View.addLevels(bars, 350, [-3000])
+            expectEqual(bars[3], -35, "and comes again: the same")
             expectEqual([View.newestBar(1000, 150), View.newestBar(149, 150)], [8, -1], "the newest bar leaves out the lag")
             expectEqual([View.breath(0), View.breath(500), View.breath(1000)].map(function(v) { return Math.round(v * 100) / 100 }),
                         [1, 0.35, 1], "the dot breathes once a second")
@@ -478,9 +488,11 @@ Scene {
             done()
         },
 
-        // The waveform's mapping, against the fixtures of voicenote-levels.js: a
-        // room is flat, speech is tall with gaps between the words, and the floor
-        // is the room's, whatever speech does to it.
+        // The waveform's mapping, against the fixtures of voicenote-levels.js: the
+        // user's own note of 22:30 first, with the quiet room he recorded in it (the
+        // room flat, the speech around it tall, the gaps between the words
+        // showing), then the earlier ones: a quiet room, a busier room, and
+        // quieter speech. The floor is the room's, whatever speech does to it.
         function(done) {
             function barsOf(text) {
                 var bars = []
@@ -495,49 +507,68 @@ Scene {
             function at(list, q) { return View.quantile(list.slice().sort(function(a, b) { return a - b }), q) }
             function top(list) { return Math.max.apply(null, list) }
             function flat(h) { return h <= View.BAR_MIN + 3 }
-            function tall(h) { return h >= 50 }
-            function taller(h) { return h >= 70 }
+            function low(h) { return h < 35 }
+            function dips(list) {
+                var n = 0
+                for (var i = 1; i < list.length - 1; i++) {
+                    if (list[i - 1] - list[i] >= 35 && list[i + 1] - list[i] >= 35)
+                        n++
+                }
+                return n
+            }
             function describe(list) {
                 return "flat " + share(list, flat).toFixed(2) + ", median " + at(list, 0.5).toFixed(0) + " px, p75 " + at(list, 0.75).toFixed(0)
-                       + " px, max " + top(list).toFixed(0) + " px, 50 px and more " + share(list, tall).toFixed(2) + ", 70 px and more " + share(list, taller).toFixed(2)
+                       + " px, max " + top(list).toFixed(0) + " px, under 35 px " + share(list, low).toFixed(2)
             }
+
+            // The user's note. Bars 112 to 153 are the quiet room he recorded (11.2 to
+            // 15.3 s); 12 to 48 and 160 to 215 are speech (1.2 to 4.9 s and 16 to 21.6 s).
+            var note = drawn(Fixtures.NOTE_2230)
+            var room = note.slice(112, 154)
+            var first = note.slice(12, 49), second = note.slice(160, 216)
+            var talk = first.concat(second)
+            test.log("     bars: the user's quiet room: " + describe(room))
+            test.log("     bars: the user's speech: " + describe(talk) + ", " + (dips(first) + dips(second)) + " dips")
+            check(share(room, flat) >= 0.98 && top(room) <= 12, "the quiet room the user recorded draws flat: " + describe(room))
+            check(at(talk, 0.5) >= 70 && at(talk, 0.75) >= 85 && share(talk, function(h) { return h >= 80 }) >= 0.45,
+                  "and his speech around it draws tall: " + describe(talk))
+            check(share(talk, low) >= 0.1 && share(talk, low) <= 0.3 && dips(first) + dips(second) >= 4,
+                  "with the gaps between his words showing: " + share(talk, low).toFixed(2) + " of the bars are under 35 px, and " + (dips(first) + dips(second)) + " are dips")
+            var bars = barsOf(Fixtures.NOTE_2230)
+            function row(ms) { return View.heights(bars, View.newestBar(ms, 150), 30).reverse() }
+            check(row(15000).every(function(h) { return h <= View.BAR_MIN + 4 }), "at 15 s the screen is a flat line: " + row(15000).map(Math.round).join(" "))
+            check(at(row(4000), 0.5) >= 60 && at(row(20000), 0.5) >= 60, "and tall at 4 s and at 20 s: " + at(row(4000), 0.5).toFixed(0) + " and " + at(row(20000), 0.5).toFixed(0) + " px at the median")
+            var begins = row(17000)
+            check(begins.slice(0, 22).every(function(h) { return h <= View.BAR_MIN + 4 }) && top(begins.slice(26)) >= 30, "at 17 s the room, then speech beginning at the right: " + begins.map(Math.round).join(" "))
+            var padded = Fixtures.NOTE_2230 + "A"
+            var three = barsOf(padded + padded + padded)
+            var third = View.heights(three, View.lastBar(three), three.length).reverse().slice(note.length * 2).slice(160, 216)
+            check(share(third, function(h) { return h >= 80 }) >= 0.9 * share(second, function(h) { return h >= 80 }),
+                  "the third time through the note it is as tall: " + share(third, function(h) { return h >= 80 }).toFixed(2) + " of the speech at 80 px and more, against " + share(second, function(h) { return h >= 80 }).toFixed(2))
+
+            // The earlier fixtures.
             var quiet = drawn(Fixtures.ROOM_QUIET), skewed = drawn(Fixtures.ROOM_QUIET_SKEWED)
             var busy = drawn(Fixtures.ROOM_BUSY), speech = drawn(Fixtures.SPEECH)
-            var three = drawn(Fixtures.SPEECH + Fixtures.SPEECH + Fixtures.SPEECH)
-            var last = three.slice(speech.length * 2)
             test.log("     bars: quiet room: " + describe(quiet))
             test.log("     bars: skewed quiet room: " + describe(skewed))
             test.log("     bars: busier room: " + describe(busy))
-            test.log("     bars: speech: " + describe(speech))
-            test.log("     bars: speech, the third time: " + describe(last))
-            check(share(quiet, flat) >= 0.98 && top(quiet) <= 15, "a quiet room (-52 dBFS, 3 either way) is flat: " + describe(quiet))
-            check(share(skewed, flat) >= 0.93 && top(skewed) <= 50, "so is one with a heavy tail, but for a bump now and then: " + describe(skewed))
-            check(share(busy, flat) >= 0.3 && at(busy, 0.5) <= 33, "the busier room is low most of the time: " + describe(busy))
-            check(at(busy, 0.5) + 8 <= at(speech, 0.5) && share(busy, flat) > share(speech, flat), "and lower than speech: median " + at(busy, 0.5).toFixed(0) + " against " + at(speech, 0.5).toFixed(0) + " px")
-            check(share(speech, tall) >= 0.42 && share(speech, taller) >= 0.28 && top(speech) === View.BAR_MAX, "speech is tall, and reaches the top: " + describe(speech))
-            check(share(speech, flat) >= 0.1 && share(speech, flat) <= 0.3, "with gaps between the words: " + share(speech, flat).toFixed(2) + " of the bars are flat")
-            check(share(last, tall) >= 0.85 * share(speech, tall), "and speech doesn't become the floor: the third time through it is as tall (" + share(last, tall).toFixed(2) + " against " + share(speech, tall).toFixed(2) + ")")
-
-            // Silence, then speech with a gap in it, then silence: what the round screen shows.
-            var bars = []
-            var levels = []
-            for (var t = 250; t < 4000; t += 50)
-                levels.push(Math.round(desktop.silenceSpeechSilence(t) * 100))
-            View.addLevels(bars, 250, levels)
-            var row = View.heights(bars, View.newestBar(4000, 150), 30).reverse()
-            var middle = row.slice(8, 22)
-            var gap = false
-            for (var i = 1; i < middle.length - 2; i++)
-                gap = gap || (middle[i] <= View.BAR_MIN + 5 && middle[i + 1] <= View.BAR_MIN + 5 && top(middle.slice(0, i)) >= 55 && top(middle.slice(i + 2)) >= 55)
-            test.log("     the row: " + row.map(Math.round).join(" "))
-            check(row.slice(0, 8).every(flat) && row.slice(22).every(flat), "silence, then speech, then silence: the silence is flat on both sides")
-            check(middle.filter(function(h) { return h >= 55 }).length >= 10 && gap, "and the speech between is tall, with a gap in it")
+            test.log("     bars: the mockup's speech: " + describe(speech))
+            check(share(quiet, flat) >= 0.98 && top(quiet) <= 12, "a quiet room (-52 dBFS, 3 either way) draws flat: " + describe(quiet))
+            check(share(skewed, flat) >= 0.98 && top(skewed) <= 15, "so does one with a heavy tail: " + describe(skewed))
+            check(share(busy, flat) >= 0.4 && at(busy, 0.5) <= 15, "the busier room draws low: " + describe(busy))
+            check(at(busy, 0.5) + 30 <= at(talk, 0.5), "and far lower than the user's speech: median " + at(busy, 0.5).toFixed(0) + " against " + at(talk, 0.5).toFixed(0) + " px")
+            check(top(speech) >= 90 && share(speech, function(h) { return h > 35 }) >= 0.2,
+                  "the mockup's speech, 5 to 8 dB under the user's, still shows, to the top: " + describe(speech))
+            var three2 = barsOf(Fixtures.SPEECH + Fixtures.SPEECH + Fixtures.SPEECH)
+            var last = View.heights(three2, View.lastBar(three2), three2.length).reverse().slice(speech.length * 2)
+            check(share(last, function(h) { return h > 35 }) >= 0.75 * share(speech, function(h) { return h > 35 }),
+                  "and speech doesn't become the floor: the third time through it shows as much (" + share(last, function(h) { return h > 35 }).toFixed(2) + " against " + share(speech, function(h) { return h > 35 }).toFixed(2) + ")")
 
             // The floor.
             var fixed = []
             View.addLevels(fixed, 0, Array(200).fill(-5800))
             View.addLevels(fixed, 10000, [-4600])
-            check(View.heights(fixed, 100, 1)[0] >= 15 && View.barHeight(-46, -52) === View.BAR_MIN,
+            check(View.heights(fixed, 100, 1)[0] >= 10 && View.barHeight(-46, -52) === View.BAR_MIN,
                   "a quieter room lowers the floor at once: -46 dBFS is " + View.heights(fixed, 100, 1)[0].toFixed(0) + " px over -58, flat over -52")
             var loud = []
             View.addLevels(loud, 0, Array(800).fill(-4700))
@@ -559,7 +590,7 @@ Scene {
             View.addLevels(whole, 0, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(0, 120)))
             expectEqual(View.floors(late, 59), View.floors(whole, 59), "a late chunk of levels works the floors out again from its first bar, to what they would have been")
 
-            // What it costs the screen's tick: one bar more each time, over 10 minutes' worth.
+            // What it costs the screen's tick: one bar more each time, over a minute's worth.
             var run = []
             var heard = Fixtures.decode(Fixtures.SPEECH)
             var t0 = Date.now()
@@ -594,13 +625,41 @@ Scene {
                        {live: true, bars: "red"}, done)
             })
         },
+        // The user's own note of 22:30, whole, as the screen shows it at five
+        // moments: speech, the room beginning, the quiet room the user recorded
+        // (a flat line), speech beginning again, and speech.
         function(done) {
-            desktop.program = desktop.silenceSpeechSilence
-            recording("N1W", 4000, function() {
-                desktop.program = null
-                screen("voicenote-wave", "Silence, speech, silence", {duration: "0:04", line: "Release to save"},
-                       {live: true, bars: "red"}, done)
-            })
+            var moments = [
+                {at: 4000, name: "speech", label: "4 s: speech", bars: "red", tall: true},
+                {at: 12000, name: "room-begins", label: "12 s: speech, then the room", bars: "red", tall: true},
+                {at: 15000, name: "quiet", label: "15 s: the quiet room", bars: "flatred"},
+                {at: 17000, name: "speech-begins", label: "17 s: the room, then speech", bars: "red"},
+                {at: 20000, name: "speech-again", label: "20 s: speech", bars: "red", tall: true}
+            ]
+            sheetNote.files = []
+            sheetNote.labels = []
+            function next(i) {
+                if (i === moments.length) {
+                    shot("voicenote-note2230", done, sheetNote)
+                    return
+                }
+                var m = moments[i]
+                var name = "voicenote-note-" + m.name
+                desktop.program = desktop.noteOf2230
+                recording("W" + i, m.at, function() {
+                    desktop.program = null
+                    var seconds = Math.floor(m.at / 1000)
+                    expectEqual({duration: overlay.durationText, line: overlay.lineText},
+                                {duration: "0:" + (seconds < 10 ? "0" : "") + seconds, line: "Release to save"}, name + ": the screen's words")
+                    shot(name, function() {
+                        look(name, {live: true, bars: m.bars, tall: m.tall})
+                        sheetNote.files = sheetNote.files.concat([shots + "/" + name + ".png"])
+                        sheetNote.labels = sheetNote.labels.concat([m.label])
+                        next(i + 1)
+                    }, overlay)
+                }, 0)
+            }
+            next(0)
         },
         function(done) {
             recording("N2", 581000, function() {

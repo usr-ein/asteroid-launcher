@@ -16,15 +16,18 @@ var COUNTDOWN_S = 30
 
 // The bars, in the mockup's pixels at 454 × 454: 6 px for the room and 100 px
 // for speech at its loudest. A level is the RMS of 50 ms, in dBFS; a bar covers
-// 100 ms.
+// 100 ms and is the mean in dB of its two levels. (The louder of the two, which
+// the mockup took, hides the gaps between words: in the user's note of 22:30
+// the gaps between words that a bar shows are 17 of 93 in speech with the mean
+// and 7 with the louder, and a click in the quiet room draws 3 times as tall.)
 var BAR_MIN = 6
 var BAR_MAX = 100
 var BAR_MS = 100
 
-// What a level draws as depends on the room. Speech sits 8 to 18 dB above a
-// quiet room, and the room's own level wanders by 5 dB or more, so a fixed scale
-// can't show silence flat and speech tall: the bars are measured from the room's
-// floor, which a note tracks as it goes.
+// What a level draws as depends on the room. The user's room at night is at
+// -60 dBFS and below, one in the afternoon -50, and speech is 20 to 30 dB over
+// either, so a fixed scale can't show silence flat and speech tall: the bars
+// are measured from the room's floor, which a note tracks as it goes.
 //  - The floor is the 15th percentile of the last 80 bars (8 s), kept between
 //    FLOOR_BOTTOM and FLOOR_TOP. It starts at FLOOR_START, a quiet room's, falls
 //    to a quieter room at once, and rises by FLOOR_RISE a bar at the most (0.1 dB
@@ -43,7 +46,7 @@ var FLOOR_BARS = 80
 var FLOOR_PERCENTILE = 0.15
 var FLOOR_RISE = 0.01
 var KNEE_DB = 8
-var LOUD_DB = -33
+var LOUD_DB = -27
 
 // "0:42", "4:07", "10:00": from the press, and no more than the limit.
 function clock(ms) {
@@ -72,19 +75,36 @@ function quantile(sorted, q) {
     return sorted[below] + (sorted[above] - sorted[below]) * (at - below)
 }
 
-// The levels of a note, by bar: bars[k] is the loudest level, in dBFS, that
-// starts within [100 k, 100 k + 100) ms of the press. A level is a hundredth
-// of a dBFS in a signal, and starts at fromMs + 50 i. A bar with no level yet
-// is undefined. The bars change only through here, which notes the first one
-// that did, for floors().
+// The levels of a note, by bar: bars[k] is the mean, in dBFS, of the levels that
+// start within [100 k, 100 k + 100) ms of the press, or the one that has come so
+// far. A level is a hundredth of a dBFS in a signal, and starts at fromMs +
+// 50 i. A bar with no level yet is undefined. The bars change only through
+// here, which keeps the levels of each (bars.halves) and notes the first bar
+// that changed, for floors().
 function addLevels(bars, fromMs, centibels) {
+    var halves = bars.halves
+    if (halves === undefined) {
+        halves = []
+        bars.halves = halves
+    }
     for (var i = 0; i < centibels.length; i++) {
-        var k = Math.floor((fromMs + 50 * i) / BAR_MS)
+        var at = fromMs + 50 * i
+        var k = Math.floor(at / BAR_MS)
+        if (k < 0)
+            continue
+        var half = at - BAR_MS * k < BAR_MS / 2 ? 0 : 1
         var db = centibels[i] / 100
-        if (k >= 0 && (bars[k] === undefined || db > bars[k])) {
-            bars[k] = db
-            bars.touched = bars.touched === undefined ? k : Math.min(bars.touched, k)
+        var pair = halves[k]
+        if (pair === undefined) {
+            pair = [undefined, undefined]
+            halves[k] = pair
         }
+        if (pair[half] === db)
+            continue
+        pair[half] = db
+        var other = pair[1 - half]
+        bars[k] = other === undefined ? db : (db + other) / 2
+        bars.touched = bars.touched === undefined ? k : Math.min(bars.touched, k)
     }
 }
 

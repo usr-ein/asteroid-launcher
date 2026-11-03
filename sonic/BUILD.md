@@ -388,13 +388,13 @@ they did.
     - the duration, Noto Sans Light 104 px, centred on y 150, `0:00` to `9:59`
       and then `10:00`, on the note's own clock, State's `startedAt`;
     - the waveform: round-ended bars 6 px wide every 10 px about y 272, up to
-      100 px tall, one per 100 ms from the louder of its two 50 ms levels, the
+      100 px tall, one per 100 ms, the mean in dB of its two 50 ms levels (the louder of the two hid the gaps between words), the
       newest at x 330 and a red 2 px "now" line at x 340, the oldest fading out to
       the left of x 116. About 30 Rectangles of the scene graph, and no Canvas.
       What a level draws as is measured from the room's floor (voicenoteview.js):
       the floor is the 15th percentile of the last 8 s of bars, between -60 and
       -50 dBFS, starting at -52, falling at once and rising 0.1 dB a second at the
-      most; a bar is flat (6 px) up to 8 dB over it, full height from -33 dBFS, and
+      most; a bar is flat (6 px) up to 8 dB over it, full height from -27 dBFS, and
       between the two a smoothstep. A quiet room draws as a flat line and speech
       as tall bars with gaps between the words; a room louder than -50 dBFS draws
       as activity, while speech keeps its height;
@@ -565,11 +565,14 @@ in the launcher, in a 454 × 454 view: the watch's screen.
       they were. With the display on or ambient, in an app or on another panel,
       a hold calls nothing at all.
     - **The waveform's mapping,** against the fixtures of
-      `voicenote-levels.js` (the mockup's speech and room note, a busier room, and
-      two synthetic quiet rooms): a quiet room flat, the busier room low and lower
-      than speech, speech tall with gaps between the words and as tall the third
-      time through; silence, speech and silence on the screen
-      (`voicenote-wave.png`); and the floor: a quieter room lowers it, a louder
+      `voicenote-levels.js`: the user's own note of 22:30 (its quiet room, 11 to
+      15.5 s, draws as a flat line, and his speech around it tall with the gaps
+      between his words showing; the screen at five moments of it,
+      `voicenote-note-*.png` and the sheet `voicenote-note2230.png`), and the
+      earlier ones, the mockup's speech and room note, a busier room and two
+      synthetic quiet rooms: a quiet room flat, the busier room low and far lower
+      than his speech, the mockup's speech (5 to 8 dB under his) still shown, and
+      none of them becoming the floor over a long note; and the floor: a quieter room lowers it, a louder
       one raises it 0.1 dB a second and never above -50 dBFS, a bar's floor depends
       on the bars before it, and a late chunk of levels gives what the whole would
       have. A tick of the view costs 0.3 ms under emulation.
