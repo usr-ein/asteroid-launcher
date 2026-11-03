@@ -312,6 +312,28 @@ is the feedback.
   toggles it knows, so it needs the button too: the settings fork's
   `findPhoneButton` entry.
 
+## The watch face's fallback
+
+A watch face that fails to load shows the default face instead, so that the
+watch always shows the time (Sonic Screwdriver's
+todos/tech-debt/04-watch-face-fallback.md). A stock `Loader` has no error
+branch: a missing face, a typo, or a plugin gone after an upgrade left a
+screen with no time on it.
+- **`src/qml/misc/FaceLoader.qml`** loads the face for both of MainScreen's
+  face loaders, the watch face and the nightstand face.
+- **The fallback:** `000-default-digital.qml`, and one warning in the
+  journal, `sonic: the watch face <url> failed to load; showing the default
+  face`.
+- **The choice stays bound** to dconf's key: the fallback never assigns the
+  `Loader`'s `source`. Choosing another face in Settings loads it, and
+  choosing the failed one again tries it again. A face fixed and reinstalled
+  at the same path is tried again at the next launcher start, which the
+  main repo's `watchface/install.sh` does anyway.
+- **If the default face fails too,** its error shows, as with a stock
+  `Loader`, with no loop.
+- **Only a load error counts.** A face that loads, then throws at run time,
+  isn't covered.
+
 ## Testing off the watch
 
 ```sh
@@ -354,6 +376,11 @@ in the launcher, in a 454 × 454 view: the watch's screen.
   - `button` feeds invented input events to `ButtonDoubleClick` through a
     FIFO, and drives `Flashlight.qml` with a stand-in for the compositor's
     windows: from the home, over an app, with the display off, and more.
+  - `face` runs `FaceLoader` with invented faces that it writes to
+    `/tmp/faces`: a good face shows itself; a broken one and a missing one
+    show the default face; another choice loads, and the failed one chosen
+    again is tried again; a broken default face shows its error, with no
+    loop.
   - `preview` puts the others' screenshots on one sheet,
     `preview-dark-theme.png`.
 - **The software renderer** draws no shader effects: the quick panel's
