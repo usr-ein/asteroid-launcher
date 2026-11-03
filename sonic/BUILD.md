@@ -297,20 +297,35 @@ they did.
     comes with the release lost, and it's no click then.
 - **Where a hold records** (the user's rule: "on the main watchface (not in an
   app)", with music playing, with stopwatches or timers on, "not just when the
-  regular watchface is shown"): `voicebutton.js`'s `canRecord(displayOn, ambient,
-  homeActive, panelX, panelY)` is `homeActive` with the panels at (0, 0), the
-  home's face page, whatever the face shows (the music face's cover, the rings
-  face with timers or stopwatches, the door, the plain face) and whatever the
-  display does, on, ambient or off. It never reads the face's mode, which only
-  the short press does (`ringsbutton.js`). `displayOn` and `ambient` are in the
-  signature so that the tests can show they make no difference.
-  - **Never** inside an app, nor on another panel (the notifications at (-1, 0),
-    the quick panel at (0, -1), the app list at (0, 1), Today at (1, 0)), with
-    the screen off too: a hold does nothing there.
-  - **With the screen off,** the face is in front soon enough: MainScreen moves
-    the panels back to (0, 0) 150 ms after the display goes off, ambient mode
-    included, and compositor.qml closes the app in front 5 s after. Until then
-    an app that was open is still in front, and a hold records nothing.
+  regular watchface is shown"; and with the screen off, where the user can't see
+  what is in front, wherever the watch was): `voicebutton.js`'s
+  `canRecord(displayOn, ambient, homeActive, panelX, panelY)`.
+  - **With the display on, or ambient:** `homeActive` with the panels at (0, 0),
+    the home's face page, whatever the face shows (the music face's cover, the
+    rings face with timers or stopwatches, the door, the plain face). It never
+    reads the face's mode, which only the short press does (`ringsbutton.js`).
+    **Never** inside an app, nor on another panel (the notifications at (-1, 0),
+    the quick panel at (0, -1), the app list at (0, 1), Today at (1, 0)): a hold
+    does nothing there.
+  - **With the display off:** always. An app in front, the app list, the quick
+    panel, anything. The recording screen comes up over what is there (it is
+    above the layers of the home, the apps, the notifications and the agents),
+    and nothing in the hold, in its screen or in the guard closes, moves or opens
+    a window, or touches the panels or the 5 s timer that closes the app (a test
+    greps for it). mce lights the display at 0.5 s, and lipstick's
+    `displayAboutToBeOn` stops compositor.qml's `delayTimer`, so what was in front
+    is in front when the screen has gone. A hold that begins in the last 0.5 s of
+    those 5 s finds the app closed by the timer, as it would have been anyway,
+    and records all the same, over the face.
+  - **Ambient counts as the display on.** Lipstick emits `displayOff` for mce's
+    off state, which is the ambient display when ambient is enabled, so
+    compositor.qml's `displayOn` is false in ambient too. The display is off when
+    `displayOn` is false and `ambient` is false. With ambient enabled the watch
+    is never off in that sense, and a hold records on the face page only.
+  - **After the display goes off:** MainScreen moves the panels back to (0, 0)
+    150 ms after `displayOff`, ambient included, and compositor.qml closes the app
+    in front 5 s after. So in ambient, an app that is still in front during those
+    5 s makes a hold do nothing; with the display off, it records.
 - **What the hold does** (`src/qml/compositor/VoiceNoteHold.qml`, a piece of the
   compositor that the tests run with stand-ins, as `Flashlight.qml` is):
   - **At the press,** where the guard allows and ioslink is on the session bus:
@@ -486,7 +501,9 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     hold's cases stamp their events on the real boot-time clock, as the kernel
     does: a click, a double-click, a hold, a release at 0.45 s, a press read
     late, a lost release, a device that goes away. So does `voicebutton.js`'s
-    guard, each condition in turn.
+    guard: on each of the five faces with the display on, ambient (as lipstick
+    has it, and with `displayOn` true) and off; in an app and on each other
+    panel, where it is false with the display on or ambient and true with it off.
   - `voicenote` runs the recording screen, `VoiceNoteOverlay.qml`, and the hold
     that drives it, `VoiceNoteHold.qml`, against stand-ins in the harness for
     ioslink's VoiceNotes and for mce, on the test bus.
@@ -505,6 +522,17 @@ in the launcher, in a 454 × 454 view: the watch's screen.
       ioslink leaving mid-note, the limit with the button still held, ioslink
       never answering, and a second hold over the first's screen; that the
       leases go only when the screen has; and the screen's 2 s, 2.5 s and 250 ms.
+    - **Where a hold records,** with compositor.qml's wiring of the button, the
+      guard, `ringsbutton.js`, the hold and the screen, and the scene's state in
+      place of the compositor's. A short press on the rings face opens its
+      Timer or Stopwatch app after the release, and a click to ioslink (Arm,
+      Cancel) shows nothing; a long press there records and opens no app. A
+      hold records on each of the five faces with the display on, ambient and
+      off, and mce is asked to light the display when it wasn't. With the
+      display off it records in an app, on the app list, the quick panel, Today
+      and the notifications, with the screen up over them, and leaves them where
+      they were. With the display on or ambient, in an app or on another panel,
+      a hold calls nothing at all.
     - **What the screen costs,** per second in the software renderer under
       emulation, hidden, stepping and sliding: only the relation between the
       three means anything, as the watch draws on the GPU. The log has it.

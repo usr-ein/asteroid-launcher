@@ -34,11 +34,14 @@
  *   watchdog and by the hard limit; and a second hold over the first's screen.
  * - Where a hold records, with compositor.qml's wiring of the hold and of the
  *   rings face's single press, and the scene's state in place of the compositor's:
- *   the home's face page, whatever the face shows and whatever the display does.
- *   A short press on the rings face opens its Timer or Stopwatch app after the
- *   release, and a long press there records and opens none; a hold records on
- *   every face, with the display on, ambient and off; and never in an app or on
- *   another panel, the display off included, where it calls nothing at all.
+ *   with the display off, wherever the watch was; with it on or ambient, the
+ *   home's face page, whatever the face shows. A short press on the rings face
+ *   opens its Timer or Stopwatch app after the release, and a long press there
+ *   records and opens none; a hold records on every face, with the display on,
+ *   ambient and off; with the display off it records in an app, on the app
+ *   list, the quick panel, Today and the notifications, and leaves them where
+ *   they were; and with the display on or ambient it does nothing in an app or
+ *   on another panel, and calls nothing at all.
  * - What the screen costs under emulation: frames and CPU for a second of
  *   it, with the bars sliding and stepping, against the same with it hidden.
  */
@@ -1066,20 +1069,33 @@ Scene {
 
         // A hold records on every face the user's watch face has, with the
         // display on, ambient and off. The face's mode is no input of the hold:
-        // only the rings' view is read, by the single press.
+        // only the rings' view is read, by the single press. Ambient is lipstick's
+        // own: it tells displayOff for mce's off state, which is the ambient
+        // display when ambient is enabled, so displayOn is false and ambient true.
         function(done) {
-            var cases = [
-                {face: "the music face's cover", display: "on", state: {}},
-                {face: "the rings face, timers running", display: "on", state: {ringsView: "timers"}},
-                {face: "the rings face, stopwatches running", display: "on", state: {ringsView: "stopwatches"}},
-                {face: "the door glyph", display: "on", state: {}},
-                {face: "the plain digital face", display: "on", state: {}},
-                {face: "the music face's cover", display: "ambient", state: {ambient: true}},
-                {face: "the rings face, timers running", display: "ambient", state: {ambient: true, ringsView: "timers"}},
-                {face: "the rings face, stopwatches running", display: "off", state: {displayOn: false, ringsView: "stopwatches"}},
-                {face: "the plain digital face", display: "off", state: {displayOn: false}},
-                {face: "the door glyph", display: "off and ambient", state: {displayOn: false, ambient: true}}
+            var faces = [
+                {face: "the music face's cover", state: {}},
+                {face: "the rings face, timers running", state: {ringsView: "timers"}},
+                {face: "the rings face, stopwatches running", state: {ringsView: "stopwatches"}},
+                {face: "the door glyph", state: {}},
+                {face: "the plain digital face", state: {}}
             ]
+            var displays = [
+                {display: "on", state: {}, lit: true},
+                {display: "ambient", state: {displayOn: false, ambient: true}, lit: false},
+                {display: "off", state: {displayOn: false}, lit: false}
+            ]
+            var cases = []
+            displays.forEach(function(d) {
+                faces.forEach(function(f) {
+                    var state = {}
+                    Object.keys(f.state).forEach(function(k) { state[k] = f.state[k] })
+                    Object.keys(d.state).forEach(function(k) { state[k] = d.state[k] })
+                    cases.push({label: "on " + f.face + ", the display " + d.display, state: state, lit: d.lit})
+                })
+            })
+            // The compositor can also have ambient while displayOn is true.
+            cases.push({label: "on the plain digital face, ambient with displayOn true", state: {ambient: true}, lit: false})
             function next(i) {
                 if (i === cases.length) {
                     desktop.scene({})
@@ -1087,20 +1103,19 @@ Scene {
                     return
                 }
                 var c = cases[i]
-                var label = "on " + c.face + ", the display " + c.display
                 desktop.scene(c.state)
                 desktop.opened = []
                 reset()
                 press(test.bootMs())
-                waitFor(function() { return overlay.phase === "live" }, 5000, "a hold records " + label, function() {
+                waitFor(function() { return overlay.phase === "live" }, 5000, "a hold records " + c.label, function() {
                     after(300, function() {
                         release(test.bootMs())
                         waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
                             expectEqual({calls: stripped(voicenotes.calls), opened: desktop.opened},
                                         {calls: ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], opened: []},
-                                        label + ": Arm, Keep, Stop, and no app")
-                            if (!(c.state.displayOn === undefined && c.state.ambient === undefined))
-                                check(mce.calls.indexOf("req_display_state_on") !== -1, label + ": mce turns the display on")
+                                        c.label + ": Arm, Keep, Stop, and no app")
+                            expectEqual(mce.calls.indexOf("req_display_state_on") !== -1, !c.lit,
+                                        c.label + (c.lit ? ": mce isn't asked to turn the display on" : ": mce turns the display on"))
                             settled(function() { after(450, function() { next(i + 1) }) })
                         })
                     })
@@ -1109,18 +1124,65 @@ Scene {
             next(0)
         },
 
-        // Never in an app, nor on another panel, with the screen off too: a
-        // hold does nothing at all, and calls nothing.
+        // With the display off a hold records wherever the watch was: an app in
+        // front, the app list, the quick panel, Today, the notifications. The
+        // user can't see it, so they expect a note. The screen comes up over what
+        // is there, and the hold navigates nothing (its only calls are mce's and
+        // ioslink's), so that what was in front is in front when the screen is gone.
+        function(done) {
+            var cases = [
+                {where: "an app in front", state: {displayOn: false, homeActive: false}},
+                {where: "an app in front, the panels left on the app list", state: {displayOn: false, homeActive: false, panelY: 1}},
+                {where: "the app list", state: {displayOn: false, panelY: 1}},
+                {where: "the quick panel", state: {displayOn: false, panelY: -1}},
+                {where: "Today", state: {displayOn: false, panelX: 1}},
+                {where: "the notifications", state: {displayOn: false, panelX: -1}}
+            ]
+            function next(i) {
+                if (i === cases.length) {
+                    desktop.scene({})
+                    done()
+                    return
+                }
+                var c = cases[i]
+                desktop.scene(c.state)
+                desktop.opened = []
+                var before = {home: desktop.homeActive, x: desktop.panelX, y: desktop.panelY}
+                reset()
+                press(test.bootMs())
+                waitFor(function() { return overlay.phase === "live" }, 5000, "with the display off, a hold records on " + c.where, function() {
+                    check(overlay.shown, "the screen is up, over " + c.where)
+                    after(300, function() {
+                        release(test.bootMs())
+                        waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
+                            expectEqual({calls: stripped(voicenotes.calls), opened: desktop.opened},
+                                        {calls: ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], opened: []},
+                                        "with the display off, on " + c.where + ": Arm, Keep, Stop, and no app")
+                            check(mce.calls.indexOf("req_display_state_on") !== -1, "mce turns the display on")
+                            settled(function() {
+                                expectEqual({home: desktop.homeActive, x: desktop.panelX, y: desktop.panelY}, before,
+                                            "and " + c.where + " is where it was, when the screen has gone")
+                                after(450, function() { next(i + 1) })
+                            })
+                        })
+                    })
+                })
+            }
+            next(0)
+        },
+
+        // With the display on, or ambient, never in an app nor on another panel:
+        // a hold does nothing at all, and calls nothing.
         function(done) {
             var cases = [
                 {where: "an app in front, the display on", state: {homeActive: false}},
-                {where: "an app in front, the display off", state: {homeActive: false, displayOn: false}},
-                {where: "an app in front, ambient", state: {homeActive: false, ambient: true}},
-                {where: "the app list", state: {panelY: 1}},
-                {where: "the app list, the display off", state: {panelY: 1, displayOn: false}},
-                {where: "Today", state: {panelX: 1}},
-                {where: "the quick panel", state: {panelY: -1}},
-                {where: "the notifications, the display off", state: {panelX: -1, displayOn: false}}
+                {where: "an app in front, ambient", state: {homeActive: false, displayOn: false, ambient: true}},
+                {where: "an app in front, ambient with displayOn true", state: {homeActive: false, ambient: true}},
+                {where: "the app list, the display on", state: {panelY: 1}},
+                {where: "the app list, ambient", state: {panelY: 1, displayOn: false, ambient: true}},
+                {where: "Today, the display on", state: {panelX: 1}},
+                {where: "the quick panel, the display on", state: {panelY: -1}},
+                {where: "the notifications, the display on", state: {panelX: -1}}
             ]
             function next(i) {
                 if (i === cases.length) {

@@ -528,14 +528,22 @@ Scene {
             })
         },
         function(done) {
-            // The guard (the user's rule): a hold records on the home's face
-            // page, whatever the face shows and whatever the display does:
-            // home in front, panels at (0, 0). Never in an app, nor on another
-            // panel, with the screen off too.
+            // The guard (the user's rule, and the screen-off rule that settles
+            // what the user can't see): with the display off a hold records
+            // wherever the watch was; with the display on, or ambient, only on
+            // the home's face page, whatever the face shows: home in front,
+            // panels at (0, 0). Never in an app, nor on another panel, with the
+            // display on or ambient. Ambient counts as the display on: lipstick
+            // emits displayOff for mce's off state, which is the ambient display
+            // when ambient is enabled, so compositor.qml's displayOn is false in
+            // ambient too, and `ambient` says which it is.
             var displays = [{name: "on", displayOn: true, ambient: false},
-                            {name: "ambient", displayOn: true, ambient: true},
-                            {name: "off", displayOn: false, ambient: false},
-                            {name: "off and ambient", displayOn: false, ambient: true}]
+                            {name: "ambient, as lipstick has it (displayOn false)", displayOn: false, ambient: true},
+                            {name: "ambient with displayOn true", displayOn: true, ambient: true},
+                            {name: "off", displayOn: false, ambient: false}]
+            function guard(homeActive, x, y) {
+                return displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, homeActive, x, y) })
+            }
             // What the face shows is no input of the guard. It is one of the
             // single press, whose app is the one of the rings the face shows.
             var faces = [{name: "the music face's cover", ringsView: "", app: ""},
@@ -544,23 +552,23 @@ Scene {
                          {name: "the door glyph", ringsView: "", app: ""},
                          {name: "the plain digital face", ringsView: "", app: ""}]
             faces.forEach(function(f) {
-                expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, true, 0, 0) }),
-                            [true, true, true, true], "a hold records on " + f.name + ", with the display on, ambient and off")
+                expectEqual(guard(true, 0, 0), [true, true, true, true],
+                            "a hold records on " + f.name + ", with the display on, ambient (both ways) and off")
                 expectEqual(displays.map(function(d) { return RingsButton.app(d.displayOn, d.ambient, true, 0, 0, f.ringsView) }),
                             [f.app, "", "", ""], "and a short press there opens " + (f.app === "" ? "no app" : f.app) + ", with the display on only, as before")
             })
-            expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, false, 0, 0) }),
-                        [false, false, false, false], "in an app (the home not in front), none, with the display on, ambient and off")
-            expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, false, 1, 1) }),
-                        [false, false, false, false], "in an app, wherever the panels were left, none")
+            expectEqual(guard(false, 0, 0), [false, false, false, true],
+                        "in an app (the home not in front): none with the display on or ambient, one with the display off")
+            expectEqual(guard(false, 1, 1), [false, false, false, true],
+                        "in an app, wherever the panels were left: the same")
             var panels = [{name: "Today", x: 1, y: 0}, {name: "the notifications", x: -1, y: 0},
                           {name: "the app list", x: 0, y: 1}, {name: "the quick panel", x: 0, y: -1},
                           {name: "the panels not there yet", x: -1, y: -1}]
             panels.forEach(function(p) {
-                expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, true, p.x, p.y) }),
-                            [false, false, false, false], "on " + p.name + ", none, with the display on, ambient and off")
+                expectEqual(guard(true, p.x, p.y), [false, false, false, true],
+                            "on " + p.name + ": none with the display on or ambient, one with the display off")
             })
-            expectEqual(VoiceButton.canRecord(true, false, undefined, 0, 0), false, "the home not known: none")
+            expectEqual(guard(undefined, 0, 0), [false, false, false, true], "the home not known: as in an app")
             // The compositor's handler gives the guard the home and the grid's
             // position, and never reads the face's mode.
             var handler = sh("sed -n '/onHoldStarted: {/,/^        }/p' /src/src/qml/compositor/compositor.qml").output
@@ -578,6 +586,20 @@ Scene {
                             + " grep -c 'z: 5.5$' /src/src/qml/compositor/VoiceNoteOverlay.qml").output.trim().split("\n")
             expectEqual(wiring, ["1", "1", "1", "1", "1", "1", "1", "1"],
                         "compositor.qml wires the hold to the guard and to voiceNote, and the recording screen is between the gesture area (z 5) and the round mask (z 6)")
+            // With the display off a hold records over whatever was in front, an
+            // app too, and leaves it there: the recording screen is over the layers
+            // of the home, the apps, the notifications and the agents (z 1 to 4),
+            // and nothing in the hold, in its screen or in the guard closes, moves
+            // or opens a window, or touches the panels or compositor.qml's 5 s
+            // timer that closes the app.
+            var layers = sh("grep -c 'z: [1-4]$' /src/src/qml/compositor/compositor.qml").output.trim()
+            expectEqual(layers, "4", "the home, the apps, the notifications and the agents are layers 1 to 4, under the recording screen at 5.5")
+            var navigation = "setCurrentWindow|closeClientForWindowId|windowToFront|moveTo|topmostWindow|homeWindow|delayTimer|launchApp|aboutToClose|aboutToMinimize"
+            var navigates = sh("cd /src/src/qml/compositor && for f in VoiceNoteHold.qml VoiceNoteOverlay.qml voicebutton.js voicenoteview.js; do"
+                               + " echo \"$f $(grep -c -E '" + navigation + "' $f)\"; done").output.trim().split("\n")
+            expectEqual(navigates, ["VoiceNoteHold.qml 0", "VoiceNoteOverlay.qml 0", "voicebutton.js 0", "voicenoteview.js 0"],
+                        "the hold, its screen and the guard close, move and open no window, and don't touch the panels or the app's timer")
+            check(!new RegExp(navigation).test(handler), "nor does compositor.qml's handler of the hold's start")
             done()
         },
 
