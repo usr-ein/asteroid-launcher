@@ -39,6 +39,7 @@ import org.asteroid.launcher 1.0
 import Nemo.DBus 2.0
 import "desktop.js" as Desktop
 import "ringsbutton.js" as RingsButton
+import "voicebutton.js" as VoiceButton
 import "compositor"
 
 Item {
@@ -173,6 +174,20 @@ Item {
             if (app !== "")
                 appLauncher.launchApp(app)
         }
+        // A hold records a voice note (the main repo's docs/prd/voice_notes.md
+        // § 8.2): with the display off, wherever the watch was; with it on or
+        // ambient, on the home's face page, whatever the face shows, and never
+        // in an app or on another panel. voiceNote does the rest, and nothing
+        // with no ioslink.
+        onHoldStarted: {
+            var grid = Desktop.panelsGrid
+            if (VoiceButton.canRecord(comp.displayOn, Lipstick.compositor.displayAmbient,
+                                      Lipstick.compositor.homeActive,
+                                      grid ? grid.currentHorizontalPos : -1, grid ? grid.currentVerticalPos : -1))
+                voiceNote.start(pressedAt)
+        }
+        onHoldConfirmed: voiceNote.confirm()
+        onHoldEnded: voiceNote.end(releasedAt, confirmed)
     }
 
     AppLauncher {
@@ -197,6 +212,35 @@ Item {
         closeWindow: function(wrapper) { Lipstick.compositor.closeClientForWindowId(wrapper.window.windowId) }
         launch: function() { appLauncher.launchApp("asteroid-flashlight") }
         wake: function() { mceRequest.call("req_display_state_on", undefined) }
+    }
+
+    // ioslink's VoiceNotes (the main repo's bridge/PROTOCOL.md § 6.14.4): Arm,
+    // Keep, Stop and Cancel, and whether ioslink is on the bus at all.
+    DBusInterface {
+        id: voiceNotesBus
+        bus: DBus.SessionBus
+        service: "org.sonicscrewdriver.ioslink"
+        path: "/org/sonicscrewdriver/ioslink"
+        iface: "org.sonicscrewdriver.ioslink.VoiceNotes"
+        watchServiceStatus: true
+    }
+
+    // The recording screen, over the gesture area (z 5) and under the round
+    // mask (z 6). It's created now and hidden.
+    VoiceNoteOverlay {
+        id: voiceOverlay
+        anchors.fill: parent
+    }
+
+    VoiceNoteHold {
+        id: voiceNote
+        overlay: voiceOverlay
+        ioslinkUp: voiceNotesBus.status === DBusInterface.Available
+        displayLit: comp.displayOn && !Lipstick.compositor.displayAmbient
+        callMce: function(method, args, callback) { mceRequest.call(method, args, callback) }
+        callIoslink: function(method, args, callback, errback) {
+            voiceNotesBus.typedCall(method, args, callback, errback)
+        }
     }
 
     Timer {

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34" width="34" height="34">
+  <!-- Voice notes: the green check that takes the red dot's place once a note is
+       saved (VoiceNoteOverlay.qml). Sonic Screwdriver's icons, sonic/icons/. -->
+  <circle cx="17" cy="17" r="16" fill="#30d158"/>
+  <path d="M10 17.5l4.6 4.6L24.5 12" fill="none" stroke="#000000" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

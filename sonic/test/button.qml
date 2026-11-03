@@ -13,6 +13,19 @@
  * - Its single press, after the double-click's window, and ringsbutton.js,
  *   which compositor.qml asks which app a single press opens: the rings
  *   face's app, only there (the main repo's docs/prd/clock.md § 8.9).
+ * - Its hold (the main repo's docs/prd/voice_notes.md § 8.2), which reads the
+ *   releases too, with events stamped on the real boot-time clock, as the
+ *   kernel stamps them: a click, which confirms no hold and ends in a single
+ *   press once 400 ms have passed, or at the release if that's later; a
+ *   double-click, whose second press starts no hold, even held for longer
+ *   than 0.5 s; a hold of 0.5 s, confirmed, with no single press and no
+ *   double-click; a release at 0.45 s, a single press at the release; a press
+ *   and its release read together after a stall, at 0.55 s, which still
+ *   confirm; a press that woke the watch, read late, timed from when it was
+ *   pressed, and one with a stamp that isn't on the boot-time clock, timed
+ *   from when it arrives; a press while the last one's release never came; a
+ *   device that goes away mid-hold. And voicebutton.js, which compositor.qml
+ *   asks where a hold records a note: each condition in turn.
  * - Flashlight.qml, the launcher's own, with a stand-in for compositor.qml's
  *   windows (its window functions as they are) and processes of this
  *   container: the flashlight's window is the one whose process's command
@@ -26,6 +39,7 @@ import QtQuick 2.9
 import org.asteroid.launcher 1.0
 import "qrc:/qml/compositor"
 import "qrc:/qml/ringsbutton.js" as RingsButton
+import "qrc:/qml/voicebutton.js" as VoiceButton
 
 Scene {
     id: desktop
@@ -42,12 +56,25 @@ Scene {
         id: button
         property int clicks: 0
         property int singles: 0
-        onSingleClicked: singles++
+        // What the button reported, in order, with the real time of each:
+        // {name, at, detail}.
+        property var events: []
+        function note(name, detail) {
+            events.push({name: name, at: Date.now(), detail: detail})
+        }
+        onSingleClicked: {
+            singles++
+            note("single")
+        }
         onDoubleClicked: {
             clicks++
+            note("double")
             if (wired)
                 flashlight.toggle()
         }
+        onHoldStarted: note("started", pressedAt)
+        onHoldConfirmed: note("confirmed")
+        onHoldEnded: note("ended", {releasedAt: releasedAt, confirmed: confirmed})
         // The flashlight follows the button only at the end.
         property bool wired: false
     }
@@ -65,6 +92,25 @@ Scene {
 
     function send(events) {
         check(test.inputEvents(fifo, events), "write " + events.length + " input events")
+    }
+
+    // A press or a release at a time on the boot-time clock.
+    function key(value, stamp) {
+        return [[stamp, evKey, keyMenu, value], [stamp, evSyn, 0, 0]]
+    }
+
+    // The names of what the button reported since `from`, in order.
+    function reported(from) {
+        return button.events.slice(from).map(function(e) { return e.name })
+    }
+
+    function lastOf(name, from) {
+        var found = button.events.slice(from).filter(function(e) { return e.name === name })
+        return found.length > 0 ? found[found.length - 1] : null
+    }
+
+    function hasEvent(name, from) {
+        return lastOf(name, from) !== null
     }
 
     // Sends the events, waits for them to be read, and checks the count.
@@ -297,6 +343,263 @@ Scene {
                             + " grep -c 'sonicRingsView' /src/src/qml/MainScreen.qml").output.trim().split("\n")
             check(wiring[0] === "1" && wiring[1] === "1" && parseInt(wiring[2]) > 0,
                   "compositor.qml asks it on a single press, and MainScreen reads the face's view: " + wiring)
+            done()
+        },
+
+        // The hold, with events stamped on the boot-time clock as the kernel
+        // stamps them.
+        function(done) {
+            // A click: a press, and its release 90 ms later.
+            var from = button.events.length, t0 = Date.now()
+            var pressed = test.bootMs()
+            send(key(1, pressed))
+            after(90, function() {
+                var released = test.bootMs()
+                send(key(0, released))
+                waitFor(function() { return hasEvent("single", from) }, 3000, "a click ends in a single press", function() {
+                    expectEqual(reported(from), ["started", "ended", "single"],
+                                "a click: a hold starts and ends, and none is confirmed")
+                    expectEqual(lastOf("started", from).detail, pressed, "the hold starts with the press' own time")
+                    expectEqual(lastOf("ended", from).detail, {releasedAt: released, confirmed: false},
+                                "it ends with the release's time, unconfirmed: a click")
+                    var wait = lastOf("single", from).at - t0
+                    check(wait >= 380 && wait < 1500, "the single press comes 400 ms after the press: " + wait + " ms")
+                    after(600, function() {
+                        expectEqual(reported(from), ["started", "ended", "single"], "and nothing after it")
+                        done()
+                    })
+                })
+            })
+        },
+        function(done) {
+            // A double-click, with its second press held for 0.7 s: it starts
+            // no hold, so nothing confirms at 0.5 s, and its release is no end.
+            var from = button.events.length
+            var first = test.bootMs()
+            send(key(1, first))
+            after(50, function() {
+                send(key(0, test.bootMs()))
+                after(50, function() {
+                    var second = test.bootMs()
+                    send(key(1, second))
+                    expectEqual(second - first < 400, true, "the second press is within 400 ms of the first: " + (second - first) + " ms")
+                    after(700, function() {
+                        send(key(0, test.bootMs()))
+                        after(600, function() {
+                            expectEqual(reported(from), ["started", "ended", "double"],
+                                        "a double-click: one hold for the first press, ended; no hold from the second, though held 0.7 s; no single press")
+                            done()
+                        })
+                    })
+                })
+            })
+        },
+        function(done) {
+            // A hold of 0.5 s: confirmed, and neither a single press nor a
+            // double-click, then or after its release.
+            var from = button.events.length, t0 = Date.now()
+            expectEqual(button.longInterval, 500, "a hold is 0.5 s by default")
+            var pressed = test.bootMs()
+            send(key(1, pressed))
+            waitFor(function() { return hasEvent("confirmed", from) }, 3000, "a hold is confirmed", function() {
+                var wait = lastOf("confirmed", from).at - t0
+                check(wait >= 480 && wait < 1500, "0.5 s after the press: " + wait + " ms")
+                expectEqual(reported(from), ["started", "confirmed"], "a hold: started and confirmed, still down")
+                after(300, function() {
+                    var released = test.bootMs()
+                    send(key(0, released))
+                    waitFor(function() { return hasEvent("ended", from) }, 3000, "its release ends it", function() {
+                        expectEqual(lastOf("ended", from).detail, {releasedAt: released, confirmed: true},
+                                    "ended with the release's time, confirmed")
+                        after(700, function() {
+                            expectEqual(reported(from), ["started", "confirmed", "ended"],
+                                        "no single press and no double-click, at its end or after")
+                            done()
+                        })
+                    })
+                })
+            })
+        },
+        function(done) {
+            // A release at 0.45 s: a single press, at the release. The press
+            // and its release are read together, so that the times are the
+            // events' own, not the test's.
+            var from = button.events.length, t0 = Date.now()
+            var now = test.bootMs()
+            send(key(1, now - 450).concat(key(0, now)))
+            waitFor(function() { return hasEvent("single", from) }, 3000, "a release at 0.45 s ends in a single press", function() {
+                expectEqual(reported(from), ["started", "ended", "single"], "started, ended as a click, then the single press")
+                expectEqual(lastOf("ended", from).detail, {releasedAt: now, confirmed: false}, "a click, at 0.45 s")
+                var wait = lastOf("single", from).at - t0
+                check(wait < 300, "the single press comes at the release, not 400 ms after the press: " + wait + " ms")
+                after(600, function() {
+                    expectEqual(reported(from).length, 3, "and nothing confirms")
+                    done()
+                })
+            })
+        },
+        function(done) {
+            // A press and its release read together after a stall, 0.55 s
+            // apart: it was held long enough all the same.
+            var from = button.events.length
+            var now = test.bootMs()
+            send(key(1, now - 550).concat(key(0, now)))
+            waitFor(function() { return hasEvent("ended", from) }, 3000, "a hold read after the fact", function() {
+                expectEqual(reported(from), ["started", "confirmed", "ended"], "confirmed before it ends, though nothing was down 0.5 s")
+                expectEqual(lastOf("ended", from).detail, {releasedAt: now, confirmed: true}, "a hold")
+                after(700, function() {
+                    expectEqual(reported(from).length, 3, "no single press")
+                    done()
+                })
+            })
+        },
+        function(done) {
+            // A press that woke the watch reaches the button late, by 400 ms:
+            // its hold is timed from when it was pressed, so it confirms 100 ms
+            // after it arrives, not 500.
+            var from = button.events.length, t0 = Date.now()
+            var pressed = test.bootMs() - 400
+            send(key(1, pressed))
+            waitFor(function() { return hasEvent("confirmed", from) }, 3000, "a late press is confirmed", function() {
+                var wait = lastOf("confirmed", from).at - t0
+                check(wait >= 90 && wait < 420, "100 ms after it was read, 0.5 s after it was pressed: " + wait + " ms")
+                send(key(0, test.bootMs()))
+                waitFor(function() { return hasEvent("ended", from) }, 3000, "its release", function() { after(500, done) })
+            })
+        },
+        function(done) {
+            // One that was down for 0.7 s when it arrived: confirmed at once.
+            var from = button.events.length, t0 = Date.now()
+            send(key(1, test.bootMs() - 700))
+            waitFor(function() { return hasEvent("confirmed", from) }, 3000, "a press that arrives 0.7 s old is confirmed", function() {
+                var wait = lastOf("confirmed", from).at - t0
+                check(wait < 300, "at once: " + wait + " ms")
+                send(key(0, test.bootMs()))
+                waitFor(function() { return hasEvent("ended", from) }, 3000, "its release", function() { after(500, done) })
+            })
+        },
+        function(done) {
+            // A stamp that isn't on the boot-time clock, as the other cases here
+            // send: no age to count, so it's timed from when it arrives.
+            var from = button.events.length, t0 = Date.now()
+            send(key(1, 33000))
+            waitFor(function() { return hasEvent("confirmed", from) }, 3000, "an old stamp is confirmed", function() {
+                var wait = lastOf("confirmed", from).at - t0
+                check(wait >= 480 && wait < 1500, "0.5 s after it arrives: " + wait + " ms")
+                send(key(0, 33900))
+                waitFor(function() { return hasEvent("ended", from) }, 3000, "its release", function() { after(500, done) })
+            })
+        },
+        function(done) {
+            // A press while the last one is still down: its release never came.
+            // The first ends at the second, as released then, and it was held
+            // 0.8 s by the stamps; the second starts, and is a click.
+            var from = button.events.length
+            var now = test.bootMs()
+            send(key(1, now - 800).concat(key(1, now)))
+            waitFor(function() { return reported(from).length >= 4 }, 3000, "the second press starts a hold", function() {
+                expectEqual(reported(from), ["started", "confirmed", "ended", "started"],
+                            "the first hold is confirmed and ended; a second starts: no double-click, 0.8 s apart")
+                expectEqual(button.events[from + 2].detail, {releasedAt: now, confirmed: true}, "the first ended at the second's time")
+                var released = test.bootMs()
+                send(key(0, released))
+                waitFor(function() { return hasEvent("single", from) }, 3000, "the second, released, is a click", function() {
+                    expectEqual(reported(from), ["started", "confirmed", "ended", "started", "ended", "single"],
+                                "which ends in a single press")
+                    done()
+                })
+            })
+        },
+        function(done) {
+            // A device that goes away mid-hold: the hold ends, as no click.
+            var from = button.events.length
+            send(key(1, test.bootMs()))
+            after(100, function() {
+                expectEqual(reported(from), ["started"], "a hold is down")
+                button.devices = [fifo, "/nonexistent"]
+                expectEqual(reported(from), ["started", "ended"], "the devices are read afresh: it ends at once")
+                expectEqual(button.events[from + 1].detail.confirmed, false, "unconfirmed")
+                button.devices = [fifo]
+                after(700, function() {
+                    expectEqual(reported(from), ["started", "ended"], "and no single press follows: it was no click")
+                    expectEqual(button.openDevices, [fifo], "the FIFO is read again")
+                    done()
+                })
+            })
+        },
+        function(done) {
+            // The guard (the user's rule, and the screen-off rule that settles
+            // what the user can't see): with the display off a hold records
+            // wherever the watch was; with the display on, or ambient, only on
+            // the home's face page, whatever the face shows: home in front,
+            // panels at (0, 0). Never in an app, nor on another panel, with the
+            // display on or ambient. Ambient counts as the display on: lipstick
+            // emits displayOff for mce's off state, which is the ambient display
+            // when ambient is enabled, so compositor.qml's displayOn is false in
+            // ambient too, and `ambient` says which it is.
+            var displays = [{name: "on", displayOn: true, ambient: false},
+                            {name: "ambient, as lipstick has it (displayOn false)", displayOn: false, ambient: true},
+                            {name: "ambient with displayOn true", displayOn: true, ambient: true},
+                            {name: "off", displayOn: false, ambient: false}]
+            function guard(homeActive, x, y) {
+                return displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, homeActive, x, y) })
+            }
+            // What the face shows is no input of the guard. It is one of the
+            // single press, whose app is the one of the rings the face shows.
+            var faces = [{name: "the music face's cover", ringsView: "", app: ""},
+                         {name: "the rings face, timers running", ringsView: "timers", app: "sonic-timer"},
+                         {name: "the rings face, stopwatches running", ringsView: "stopwatches", app: "sonic-stopwatch"},
+                         {name: "the door glyph", ringsView: "", app: ""},
+                         {name: "the plain digital face", ringsView: "", app: ""}]
+            faces.forEach(function(f) {
+                expectEqual(guard(true, 0, 0), [true, true, true, true],
+                            "a hold records on " + f.name + ", with the display on, ambient (both ways) and off")
+                expectEqual(displays.map(function(d) { return RingsButton.app(d.displayOn, d.ambient, true, 0, 0, f.ringsView) }),
+                            [f.app, "", "", ""], "and a short press there opens " + (f.app === "" ? "no app" : f.app) + ", with the display on only, as before")
+            })
+            expectEqual(guard(false, 0, 0), [false, false, false, true],
+                        "in an app (the home not in front): none with the display on or ambient, one with the display off")
+            expectEqual(guard(false, 1, 1), [false, false, false, true],
+                        "in an app, wherever the panels were left: the same")
+            var panels = [{name: "Today", x: 1, y: 0}, {name: "the notifications", x: -1, y: 0},
+                          {name: "the app list", x: 0, y: 1}, {name: "the quick panel", x: 0, y: -1},
+                          {name: "the panels not there yet", x: -1, y: -1}]
+            panels.forEach(function(p) {
+                expectEqual(guard(true, p.x, p.y), [false, false, false, true],
+                            "on " + p.name + ": none with the display on or ambient, one with the display off")
+            })
+            expectEqual(guard(undefined, 0, 0), [false, false, false, true], "the home not known: as in an app")
+            // The compositor's handler gives the guard the home and the grid's
+            // position, and never reads the face's mode.
+            var handler = sh("sed -n '/onHoldStarted: {/,/^        }/p' /src/src/qml/compositor/compositor.qml").output
+            check(handler.indexOf("homeActive") !== -1 && handler.indexOf("currentHorizontalPos") !== -1 && handler.indexOf("currentVerticalPos") !== -1,
+                  "compositor.qml's handler asks the guard with the home and the grid's position")
+            check(handler.indexOf("ringsView") === -1 && handler.indexOf("Desktop.desktop") === -1,
+                  "and never reads the face's mode")
+            var wiring = sh("grep -c 'onHoldStarted' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'VoiceButton.canRecord' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'voiceNote.start(pressedAt)' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'onHoldConfirmed: voiceNote.confirm()' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'onHoldEnded: voiceNote.end(releasedAt, confirmed)' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'z: 5$' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'z: 6$' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'z: 5.5$' /src/src/qml/compositor/VoiceNoteOverlay.qml").output.trim().split("\n")
+            expectEqual(wiring, ["1", "1", "1", "1", "1", "1", "1", "1"],
+                        "compositor.qml wires the hold to the guard and to voiceNote, and the recording screen is between the gesture area (z 5) and the round mask (z 6)")
+            // With the display off a hold records over whatever was in front, an
+            // app too, and leaves it there: the recording screen is over the layers
+            // of the home, the apps, the notifications and the agents (z 1 to 4),
+            // and nothing in the hold, in its screen or in the guard closes, moves
+            // or opens a window, or touches the panels or compositor.qml's 5 s
+            // timer that closes the app.
+            var layers = sh("grep -c 'z: [1-4]$' /src/src/qml/compositor/compositor.qml").output.trim()
+            expectEqual(layers, "4", "the home, the apps, the notifications and the agents are layers 1 to 4, under the recording screen at 5.5")
+            var navigation = "setCurrentWindow|closeClientForWindowId|windowToFront|moveTo|topmostWindow|homeWindow|delayTimer|launchApp|aboutToClose|aboutToMinimize"
+            var navigates = sh("cd /src/src/qml/compositor && for f in VoiceNoteHold.qml VoiceNoteOverlay.qml voicebutton.js voicenoteview.js; do"
+                               + " echo \"$f $(grep -c -E '" + navigation + "' $f)\"; done").output.trim().split("\n")
+            expectEqual(navigates, ["VoiceNoteHold.qml 0", "VoiceNoteOverlay.qml 0", "voicebutton.js 0", "voicenoteview.js 0"],
+                        "the hold, its screen and the guard close, move and open no window, and don't touch the panels or the app's timer")
+            check(!new RegExp(navigation).test(handler), "nor does compositor.qml's handler of the hold's start")
             done()
         },
 

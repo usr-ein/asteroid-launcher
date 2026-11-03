@@ -257,12 +257,13 @@ what they did.
   § 8.8 and § 8.9): the face that the user's watch face becomes while a timer
   or a stopwatch runs says which view it shows in its `sonicRingsView`, which
   `MainScreen.qml` reads from the active face into `desktop.ringsView`.
-  `ButtonDoubleClick` emits `singleClicked()` for a press that stays alone:
-  400 ms after it arrives with no second press, or at once when the next press
-  comes too late to pair with it; a double-click emits none. `compositor.qml`
-  then asks `ringsbutton.js` which app to open: `sonic-stopwatch` or
-  `sonic-timer`, only with the display on and not ambient, the home in front,
-  and the panels on the face itself; anywhere else, none.
+  `ButtonDoubleClick` emits `singleClicked()` for a press that stays alone and
+  is let go before the hold's 0.5 s: at the later of 400 ms after the press and
+  the release, with no second press, or at once when the next press comes too
+  late to pair with it; a double-click emits none, and neither does a hold.
+  `compositor.qml` then asks `ringsbutton.js` which app to open:
+  `sonic-stopwatch` or `sonic-timer`, only with the display on and not ambient,
+  the home in front, and the panels on the face itself; anywhere else, none.
 - **The flashlight:** asteroid-flashlight, as the quick panel's button opens
   it (`src/qml/compositor/Flashlight.qml`).
   - On: the display on first when it's off, through mce's
@@ -272,6 +273,127 @@ what they did.
     apps, and turned off by the button, it gives the screen back to that app.
   - Its window is the one whose process's command line names
     asteroid-flashlight, however it was opened.
+
+## The bottom button: a hold records a voice note
+
+Holding the bottom button records a voice note for as long as it's held, and
+the screen draws the loudness scrolling by, with the duration (the main repo's
+docs/prd/voice_notes.md § 8.2 and § 8.4). ioslink records and keeps the note;
+the launcher is the button and the screen. A click and a double-click do what
+they did.
+- **The hold, in `ButtonDoubleClick`:** it reads the button's releases too.
+  - `holdStarted(pressedAt)` for any press that isn't a double-click's second
+    press, at once, with the event's boot-time stamp in ms.
+  - `holdConfirmed()` when the button is still down `longInterval` (500 ms)
+    after the press, counted from the event's own time: a press that woke the
+    watch, and was read 100 ms late, confirms 100 ms early. An event's age
+    counts only if it's plausible, not in the future and under a second;
+    otherwise the event counts from when it arrives.
+  - `holdEnded(releasedAt, confirmed)` at the release, with `confirmed` false
+    for a click. A press and its release read together after a stall, 0.5 s
+    apart, are a hold all the same.
+  - A confirmed hold never ends in `singleClicked()` or `doubleClicked()`.
+  - A hold ends without its release if its device goes away, or if another press
+    comes with the release lost, and it's no click then.
+- **Where a hold records** (the user's rule: "on the main watchface (not in an
+  app)", with music playing, with stopwatches or timers on, "not just when the
+  regular watchface is shown"; and with the screen off, where the user can't see
+  what is in front, wherever the watch was): `voicebutton.js`'s
+  `canRecord(displayOn, ambient, homeActive, panelX, panelY)`.
+  - **With the display on, or ambient:** `homeActive` with the panels at (0, 0),
+    the home's face page, whatever the face shows (the music face's cover, the
+    rings face with timers or stopwatches, the door, the plain face). It never
+    reads the face's mode, which only the short press does (`ringsbutton.js`).
+    **Never** inside an app, nor on another panel (the notifications at (-1, 0),
+    the quick panel at (0, -1), the app list at (0, 1), Today at (1, 0)): a hold
+    does nothing there.
+  - **With the display off:** always. An app in front, the app list, the quick
+    panel, anything. The recording screen comes up over what is there (it is
+    above the layers of the home, the apps, the notifications and the agents),
+    and nothing in the hold, in its screen or in the guard closes, moves or opens
+    a window, or touches the panels or the 5 s timer that closes the app (a test
+    greps for it). mce lights the display at 0.5 s, and lipstick's
+    `displayAboutToBeOn` stops compositor.qml's `delayTimer`, so what was in front
+    is in front when the screen has gone. A hold that begins in the last 0.5 s of
+    those 5 s finds the app closed by the timer, as it would have been anyway,
+    and records all the same, over the face.
+  - **Ambient counts as the display on.** Lipstick emits `displayOff` for mce's
+    off state, which is the ambient display when ambient is enabled, so
+    compositor.qml's `displayOn` is false in ambient too. The display is off when
+    `displayOn` is false and `ambient` is false. With ambient enabled the watch
+    is never off in that sense, and a hold records on the face page only.
+  - **After the display goes off:** MainScreen moves the panels back to (0, 0)
+    150 ms after `displayOff`, ambient included, and compositor.qml closes the app
+    in front 5 s after. So in ambient, an app that is still in front during those
+    5 s makes a hold do nothing; with the display off, it records.
+- **What the hold does** (`src/qml/compositor/VoiceNoteHold.qml`, a piece of the
+  compositor that the tests run with stand-ins, as `Flashlight.qml` is):
+  - **At the press,** where the guard allows and ioslink is on the session bus:
+    mce's `req_cpu_keepalive_start`, first, because the watch can suspend within
+    150 ms of the press; then ioslink's `Arm(pressedAt)`, asynchronously. With no
+    ioslink on the bus, nothing at all.
+  - **At 0.5 s:** the recording screen shows, `req_display_state_on` if the
+    display was off or ambient, `req_display_blanking_pause`, and `Keep(id)`.
+  - **At the release:** `Stop(id, releasedAt)`, or `Cancel(id)` for a click.
+  - **Arm's answer comes when it comes.** It holds the id that Keep, Stop and
+    Cancel need, so they wait for it, in that order. `""` is a refusal (State's
+    `last` says why), which the screen shows at 0.5 s; an error from Arm (ioslink
+    busy, or without VoiceNotes) shows nothing.
+  - **What it holds are leases:** mce's keepalive, which ends if it isn't renewed
+    within 75 s, and the blanking pause, within 60 s. Both are renewed every 30 s
+    (half of `req_cpu_keepalive_period`'s answer for the keepalive) for as long
+    as the hold or the note lasts, and let go once the screen has finished, 2 s
+    after the note ended. A click lets them go at the release. The keepalive's
+    period is asked of mce under a session of its own: a period query renews its
+    session to 2 s, which would cut the real one short. A hard limit lets go of
+    everything 635 s after the press whatever happens.
+  - The names it uses: ioslink's `org.sonicscrewdriver.ioslink` on the session
+    bus, object `/org/sonicscrewdriver/ioslink`, interface
+    `org.sonicscrewdriver.ioslink.VoiceNotes`: the methods `Arm`, `Keep`, `Stop`
+    and `Cancel`, the property `State` and the signal `Levels` (the main repo's
+    bridge/PROTOCOL.md § 6.14.4); and mce's `req_cpu_keepalive_start`,
+    `req_cpu_keepalive_period`, `req_cpu_keepalive_stop`, `req_display_state_on`,
+    `req_display_blanking_pause` and `req_display_cancel_blanking_pause`.
+- **The recording screen** (`src/qml/compositor/VoiceNoteOverlay.qml`): an item
+  between the gesture area (z 5) and the round mask (z 6), created at start and
+  hidden. Black, in the family of the clock apps and Heart Rate.
+  - **What's on it,** in the 454 × 454 mockup's pixels, scaled to the screen:
+    - the red dot, 16 px at (227, 92), which breathes once a second, and the
+      green check in its place once the note is saved;
+    - the duration, Noto Sans Light 104 px, centred on y 150, `0:00` to `9:59`
+      and then `10:00`, on the note's own clock, State's `startedAt`;
+    - the waveform: round-ended bars 6 px wide every 10 px about y 272, up to
+      100 px tall, one per 100 ms from the louder of its two 50 ms levels, from
+      -60 dBFS (6 px) to -20 dBFS (100 px), the newest at x 330 and a red 2 px
+      "now" line at x 340, the oldest fading out to the left of x 116. About 30
+      Rectangles of the scene graph, and no Canvas;
+    - one line, 26 px, centred on y 372: "Release to save", then from 9:30 "30 s
+      left" to "1 s left" in amber, and at the end "Saved · sending", "Saved · 3 on
+      watch", "Saved · 18:02 dropped" (amber; "Saved · 3 dropped" for several),
+      "10 min limit · saved", "Too short" (the duration dimmed), "Watch storage
+      full" and "Microphone unavailable" (amber, before anything records).
+    - More lines for what § 8.4 doesn't cover: "Saving…" between the release
+      and State's outcome, "Recorder stopped" (amber) when ioslink leaves the bus
+      mid-note, and "Couldn't record" for a failed note with another reason. And
+      the early ends that State's `last.reason` tells (PROTOCOL.md § 6.14.4), all
+      amber, with the duration short of what was held: "Storage full · saved" for
+      a note alone past the cache's cap, which ends as a limit before 10:00,
+      "Microphone lost · saved" and "Encoder failed · saved" for a note cut short
+      and kept.
+  - **Where it gets its data:** ioslink's `Levels(id, fromMs, centibels)`, every
+    100 ms while a note is armed or records, from the press on, so that the
+    waveform is already drawn when the screen shows; and State's `recording` and
+    `last`. Nemo.DBus reads both afresh whenever ioslink comes back.
+  - **How it ends:** the outcome shows 2 s (2.5 s for a drop), then it fades
+    out in 250 ms, and `finished()` lets the hold let go of its leases. If ioslink
+    never says how a released note ended, it goes after 5 s with no claim about
+    the note.
+  - **Its motion:** the row of bars slides 10 px over each 100 ms, or with
+    `slide` false steps 10 px every 100 ms, which draws about a sixth of the frames
+    (10 a second, not 60). The dot's breathing steps with it.
+  - **No touch:** it has no touch handling, so touches reach what's under it.
+  - **Nothing within 12 px of the round edge:** the scene checks every
+    screenshot, pixel by pixel, against the circle 215 px from the middle.
 
 ## The quick panel's Find phone button
 
@@ -375,7 +497,56 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     sample days, invented, and changes them under the open screen.
   - `button` feeds invented input events to `ButtonDoubleClick` through a
     FIFO, and drives `Flashlight.qml` with a stand-in for the compositor's
-    windows: from the home, over an app, with the display off, and more.
+    windows: from the home, over an app, with the display off, and more. The
+    hold's cases stamp their events on the real boot-time clock, as the kernel
+    does: a click, a double-click, a hold, a release at 0.45 s, a press read
+    late, a lost release, a device that goes away. So does `voicebutton.js`'s
+    guard: on each of the five faces with the display on, ambient (as lipstick
+    has it, and with `displayOn` true) and off; in an app and on each other
+    panel, where it is false with the display on or ambient and true with it off.
+  - `voicenote` runs the recording screen, `VoiceNoteOverlay.qml`, and the hold
+    that drives it, `VoiceNoteHold.qml`, against stand-ins in the harness for
+    ioslink's VoiceNotes and for mce, on the test bus.
+    - **The screens,** fed through the bus as ioslink feeds them: recording, the
+      last 30 s, the second before the outcome, saved with the iPhone in reach
+      and away, a drop, the limit, too short, storage full, no microphone and
+      ioslink gone. The mockup's own levels draw the bars. Each is a screenshot
+      of the screen alone, `voicenote-<name>.png`, checked pixel by pixel:
+      nothing that isn't black beyond the circle 12 px inside the round edge,
+      and the red dot or the green check, the red or grey bars, the "now" line
+      and the line's colour where each belongs. `voicenote-sheet.png` has them
+      all.
+    - **The hold,** with the button's own events through a FIFO: what it calls,
+      and in what order, for a long hold, a click, a double-click, no ioslink, a
+      refusal, an error from Arm, an Arm answered late, the display off,
+      ioslink leaving mid-note, the limit with the button still held, ioslink
+      never answering, and a second hold over the first's screen; that the
+      leases go only when the screen has; and the screen's 2 s, 2.5 s and 250 ms.
+    - **Where a hold records,** with compositor.qml's wiring of the button, the
+      guard, `ringsbutton.js`, the hold and the screen, and the scene's state in
+      place of the compositor's. A short press on the rings face opens its
+      Timer or Stopwatch app after the release, and a click to ioslink (Arm,
+      Cancel) shows nothing; a long press there records and opens no app. A
+      hold records on each of the five faces with the display on, ambient and
+      off, and mce is asked to light the display when it wasn't. With the
+      display off it records in an app, on the app list, the quick panel, Today
+      and the notifications, with the screen up over them, and leaves them where
+      they were. With the display on or ambient, in an app or on another panel,
+      a hold calls nothing at all.
+    - **What the screen costs,** per second in the software renderer under
+      emulation, hidden, stepping and sliding: only the relation between the
+      three means anything, as the watch draws on the GPU. The log has it.
+  - `voicenote-fake`, on request, not in the full run: the same screen and hold
+    against the main repo's contract fake, `fakeioslink voicenotes`, which
+    serves VoiceNotes through godbus and busapi as ioslink does, where the
+    harness' stand-in is Qt's. It checks that Nemo.DBus reads what godbus
+    exports (State, its PropertiesChanged, Levels' `ai`, Arm's `x`), and each
+    way a note ends, as the fake is told to end it. The fork can't build the
+    fake, which is Go: build it for the test container, 32-bit ARM Linux, with
+    `GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -o
+    <fork>/sonic/out/test/fakeioslink ./cmd/fakeioslink` in the main repo's
+    `ioslink/`, then `sonic/test/test.sh voicenote-fake`. Without it the scene
+    says so, and passes.
   - `face` runs `FaceLoader` with invented faces that it writes to
     `/tmp/faces`: a good face shows itself; a broken one and a missing one
     show the default face; another choice loads, and the failed one chosen

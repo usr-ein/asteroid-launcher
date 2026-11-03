@@ -36,6 +36,19 @@ ButtonDoubleClick::ButtonDoubleClick(QObject *parent)
     // m_lastPress stays: a second press that arrives late, after a wake, but
     // was pressed in time still makes a double-click.
     connect(&m_single, &QTimer::timeout, this, &ButtonDoubleClick::singleClicked);
+
+    m_hold.setSingleShot(true);
+    // To the millisecond: a note starts at the press, and the tick at its
+    // confirmation says "speak".
+    m_hold.setTimerType(Qt::PreciseTimer);
+    connect(&m_hold, &QTimer::timeout, this, [this] {
+        if (!m_holding || m_confirmed)
+            return;
+        m_confirmed = true;
+        // A hold never pairs with the next press.
+        m_lastPress = -1;
+        emit holdConfirmed();
+    });
 }
 
 ButtonDoubleClick::~ButtonDoubleClick()
@@ -69,6 +82,19 @@ void ButtonDoubleClick::setInterval(int interval)
         return;
     m_interval = interval;
     emit intervalChanged();
+}
+
+int ButtonDoubleClick::longInterval() const
+{
+    return m_longInterval;
+}
+
+void ButtonDoubleClick::setLongInterval(int longInterval)
+{
+    if (longInterval == m_longInterval)
+        return;
+    m_longInterval = longInterval;
+    emit longIntervalChanged();
 }
 
 QStringList ButtonDoubleClick::devices() const
@@ -117,6 +143,8 @@ void ButtonDoubleClick::reopen()
 {
     m_reopenScheduled = false;
     const QStringList before = openDevices();
+    // A hold has no release to wait for from devices that are closed.
+    abortHold();
     closeAll();
     m_lastPress = -1;
 
@@ -177,9 +205,14 @@ void ButtonDoubleClick::readFrom(int fd)
             const size_t count = size_t(n) / sizeof(struct input_event);
             for (size_t i = 0; i < count; ++i) {
                 const struct input_event &event = events[i];
-                // 1 is a press; 0 a release and 2 a repeat, which don't count.
-                if (event.type == EV_KEY && event.code == m_keyCode && event.value == 1)
-                    pressed(qint64(event.input_event_sec) * 1000 + qint64(event.input_event_usec) / 1000);
+                if (event.type != EV_KEY || event.code != m_keyCode)
+                    continue;
+                const qint64 msec = qint64(event.input_event_sec) * 1000 + qint64(event.input_event_usec) / 1000;
+                // 1 is a press and 0 a release; 2, a repeat, doesn't count.
+                if (event.value == 1)
+                    pressed(msec, fd);
+                else if (event.value == 0)
+                    released(msec);
             }
             continue;
         }
@@ -191,7 +224,10 @@ void ButtonDoubleClick::readFrom(int fd)
     }
 
     // The end of the file, or a device that went away: stop reading it, and
-    // look for the devices again in a while.
+    // look for the devices again in a while. A hold that it began won't be
+    // released.
+    if (m_holding && m_holdFd == fd)
+        abortHold();
     for (const Device &device : qAsConst(m_open)) {
         if (device.fd == fd)
             device.notifier->setEnabled(false);
@@ -202,9 +238,15 @@ void ButtonDoubleClick::readFrom(int fd)
     }
 }
 
-void ButtonDoubleClick::pressed(qint64 msec)
+void ButtonDoubleClick::pressed(qint64 msec, int fd)
 {
+    // The release of the press before never came: it ended here.
+    if (m_holding)
+        endHold(msec);
+
     if (m_lastPress >= 0 && msec >= m_lastPress && msec - m_lastPress <= m_interval) {
+        // The second press of a double-click: it starts no hold, and its
+        // release means nothing.
         m_lastPress = -1;
         m_single.stop();
         emit doubleClicked();
@@ -216,5 +258,77 @@ void ButtonDoubleClick::pressed(qint64 msec)
         emit singleClicked();
     }
     m_lastPress = msec;
-    m_single.start(m_interval);
+    m_holding = true;
+    m_confirmed = false;
+    m_holdFd = fd;
+    m_pressRef = reference(msec);
+    emit holdStarted(msec);
+    // The timer starts after the signal, for what is left of the wait by
+    // then: a slow handler is part of it.
+    if (m_holding && !m_confirmed)
+        m_hold.start(int(qMax<qint64>(0, m_pressRef + m_longInterval - bootMs())));
+}
+
+void ButtonDoubleClick::released(qint64 msec)
+{
+    // The release of a double-click's second press, or of a press that this
+    // reader never saw: no hold, nothing to end.
+    if (m_holding)
+        endHold(msec);
+}
+
+void ButtonDoubleClick::endHold(qint64 stamp)
+{
+    m_hold.stop();
+    const qint64 releaseRef = reference(stamp);
+    if (!m_confirmed && releaseRef - m_pressRef >= m_longInterval) {
+        // The press and its release were read together, after a stall: the
+        // button was held long enough all the same.
+        m_confirmed = true;
+        m_lastPress = -1;
+        emit holdConfirmed();
+    }
+    const bool confirmed = m_confirmed;
+    const qint64 pressRef = m_pressRef;
+    m_holding = false;
+    m_holdFd = -1;
+    emit holdEnded(stamp, confirmed);
+    if (confirmed)
+        return;
+    // A click, alone for now: it counts at the later of the press plus the
+    // interval and the release, unless a second press comes first.
+    const qint64 wait = qMax(pressRef + m_interval, releaseRef) - bootMs();
+    if (wait > 0)
+        m_single.start(int(wait));
+    else
+        emit singleClicked();
+}
+
+void ButtonDoubleClick::abortHold()
+{
+    if (!m_holding)
+        return;
+    m_hold.stop();
+    m_holding = false;
+    m_holdFd = -1;
+    m_lastPress = -1;
+    emit holdEnded(bootMs(), m_confirmed);
+}
+
+qint64 ButtonDoubleClick::bootMs()
+{
+    struct timespec now;
+    if (::clock_gettime(CLOCK_BOOTTIME, &now) != 0 && ::clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return 0;
+    return qint64(now.tv_sec) * 1000 + qint64(now.tv_nsec) / 1000000;
+}
+
+qint64 ButtonDoubleClick::reference(qint64 stamp)
+{
+    // A press that woke the watch reaches us some tenths of a second late; a
+    // stamp that isn't on the boot-time clock is years off.
+    constexpr qint64 maxAge = 1000;
+    const qint64 now = bootMs();
+    const qint64 age = now - stamp;
+    return age >= 0 && age <= maxAge ? stamp : now;
 }
