@@ -7,6 +7,8 @@
         <file alias="Today.qml">qml/today/Today.qml</file>
         <file alias="compositor.qml">qml/compositor/compositor.qml</file>
         <file alias="ringsbutton.js">qml/compositor/ringsbutton.js</file>
+        <file alias="voicebutton.js">qml/compositor/voicebutton.js</file>
+        <file alias="voicenoteview.js">qml/compositor/voicenoteview.js</file>
         <file alias="Splash.qml">qml/misc/Splash.qml</file>
         <file alias="PanelsGrid.qml">qml/misc/PanelsGrid.qml</file>
         <file alias="AppList.qml">qml/misc/AppList.qml</file>
@@ -29,6 +31,8 @@
         <file alias="compositor/WindowWrapperBase.qml">qml/compositor/WindowWrapperBase.qml</file>
         <file alias="compositor/CircleMaskShader.qml">qml/compositor/CircleMaskShader.qml</file>
         <file alias="compositor/Flashlight.qml">qml/compositor/Flashlight.qml</file>
+        <file alias="compositor/VoiceNoteHold.qml">qml/compositor/VoiceNoteHold.qml</file>
+        <file alias="compositor/VoiceNoteOverlay.qml">qml/compositor/VoiceNoteOverlay.qml</file>
         <file alias="system/ShutdownScreen.qml">qml/misc/ShutdownScreen.qml</file>
         <file alias="volumecontrol/VolumeControl.qml">qml/misc/VolumeControl.qml</file>
         <file alias="connectivity/USBModeSelector.qml">qml/misc/USBModeSelector.qml</file>
@@ -50,6 +54,7 @@
         <file alias="sonic-stopwatch.svg">../sonic/icons/asteroid-stopwatch.svg</file>
         <file alias="sonic-heartrate.svg">../sonic/icons/sonic-heartrate.svg</file>
         <file alias="find-phone.svg">../sonic/icons/find-phone.svg</file>
+        <file alias="voice-note-saved.svg">../sonic/icons/voice-note-saved.svg</file>
         <file alias="sonic-checkin.svg">../sonic/icons/sonic-checkin.svg</file>
     </qresource>
 </RCC>
