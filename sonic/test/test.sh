@@ -3,7 +3,7 @@
 #
 #   sonic/test/test.sh             every scene
 #   sonic/test/test.sh <scene>...  these scenes: load, applist, quickpanel,
-#                                  today, button, then preview, a sheet of
+#                                  today, button, face, then preview, a sheet of
 #                                  the others' screenshots
 #
 # load isn't a scene: it compiles compositor.qml and MainScreen.qml as
@@ -35,7 +35,7 @@ build_volume=${SONIC_BUILD_VOLUME:-sonic-asteroid-launcher-build}-test
 sdk_dir=/opt/asteroid-sdk
 stage=$cache/launcher-stage
 fonts=$cache/watch-fonts
-all_scenes="load applist quickpanel today button preview"
+all_scenes="load applist quickpanel today button face preview"
 
 # <local name> <path on the watch> <sha256>
 watch_qml="

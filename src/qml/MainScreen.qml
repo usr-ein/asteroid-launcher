@@ -371,21 +371,23 @@ Item {
             onForbidBottomChanged: grid.changeAllowedDirections()
             onForbidLeftChanged: grid.changeAllowedDirections()
             onForbidRightChanged: grid.changeAllowedDirections()
-            Loader {
+            // Sonic Screwdriver: FaceLoader shows the default face when the
+            // chosen one fails to load, so that the time always shows.
+            FaceLoader {
                 id: nightstandWatchfaceLoader
                 opacity: nightstandWatchfaceActive ? 1.0 : 0.0
                 visible: opacity
                 anchors.fill: parent
-                source: watchfaceNightstandSource.value
+                face: watchfaceNightstandSource.value
                 Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.InCirc } }
             }
-            Loader {
+            FaceLoader {
                 id: watchfaceLoader
                 opacity: !nightstandWatchfaceActive ? 1.0 : 0.0
                 visible: opacity
                 Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.InCirc} }
                 anchors.fill: parent
-                source: watchFaceSource.value
+                face: watchFaceSource.value
             }
         }
     }
