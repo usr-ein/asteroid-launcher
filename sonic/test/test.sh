@@ -4,7 +4,8 @@
 #   sonic/test/test.sh             every scene
 #   sonic/test/test.sh <scene>...  these scenes: load, applist, quickpanel,
 #                                  today, button, face, voicenote, then preview,
-#                                  a sheet of the others' screenshots
+#                                  a sheet of the others' screenshots; and,
+#                                  on request only, voicenote-fake (sonic/BUILD.md)
 #
 # load isn't a scene: it compiles compositor.qml and MainScreen.qml as
 # lipstick does, with the launcher's types registered as main() registers

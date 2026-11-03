@@ -347,10 +347,14 @@ they did.
       watch", "Saved · 18:02 dropped" (amber; "Saved · 3 dropped" for several),
       "10 min limit · saved", "Too short" (the duration dimmed), "Watch storage
       full" and "Microphone unavailable" (amber, before anything records).
-    - Three more lines for what the PRD doesn't cover: "Saving…" between the
-      release and State's outcome, "Recorder stopped" (amber) when ioslink leaves
-      the bus mid-note, and "Couldn't record" for a failed note with another
-      reason.
+    - More lines for what § 8.4 doesn't cover: "Saving…" between the release
+      and State's outcome, "Recorder stopped" (amber) when ioslink leaves the bus
+      mid-note, and "Couldn't record" for a failed note with another reason. And
+      the early ends that State's `last.reason` tells (PROTOCOL.md § 6.14.4), all
+      amber, with the duration short of what was held: "Storage full · saved" for
+      a note alone past the cache's cap, which ends as a limit before 10:00,
+      "Microphone lost · saved" and "Encoder failed · saved" for a note cut short
+      and kept.
   - **Where it gets its data:** ioslink's `Levels(id, fromMs, centibels)`, every
     100 ms while a note is armed or records, from the press on, so that the
     waveform is already drawn when the screen shows; and State's `recording` and
@@ -494,6 +498,17 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     - **What the screen costs,** per second in the software renderer under
       emulation, hidden, stepping and sliding: only the relation between the
       three means anything, as the watch draws on the GPU. The log has it.
+  - `voicenote-fake`, on request, not in the full run: the same screen and hold
+    against the main repo's contract fake, `fakeioslink voicenotes`, which
+    serves VoiceNotes through godbus and busapi as ioslink does, where the
+    harness' stand-in is Qt's. It checks that Nemo.DBus reads what godbus
+    exports (State, its PropertiesChanged, Levels' `ai`, Arm's `x`), and each
+    way a note ends, as the fake is told to end it. The fork can't build the
+    fake, which is Go: build it for the test container, 32-bit ARM Linux, with
+    `GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -o
+    <fork>/sonic/out/test/fakeioslink ./cmd/fakeioslink` in the main repo's
+    `ioslink/`, then `sonic/test/test.sh voicenote-fake`. Without it the scene
+    says so, and passes.
   - `face` runs `FaceLoader` with invented faces that it writes to
     `/tmp/faces`: a good face shows itself; a broken one and a missing one
     show the default face; another choice loads, and the failed one chosen
