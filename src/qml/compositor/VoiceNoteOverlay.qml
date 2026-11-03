@@ -31,7 +31,7 @@
  * The duration runs on the note's own clock, State's startedAt.
  *
  * The row of bars slides one bar every 100 ms; with `slide` false it steps
- * instead, which costs a tenth of the frames.
+ * instead, which draws about a sixth of the frames (10 a second, not 60).
  */
 import QtQuick 2.15
 import Nemo.DBus 2.0

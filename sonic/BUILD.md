@@ -360,8 +360,8 @@ they did.
     never says how a released note ended, it goes after 5 s with no claim about
     the note.
   - **Its motion:** the row of bars slides 10 px over each 100 ms, or with
-    `slide` false steps 10 px every 100 ms, which draws a tenth of the frames. The
-    dot's breathing steps with it.
+    `slide` false steps 10 px every 100 ms, which draws about a sixth of the frames
+    (10 a second, not 60). The dot's breathing steps with it.
   - **No touch:** it has no touch handling, so touches reach what's under it.
   - **Nothing within 12 px of the round edge:** the scene checks every
     screenshot, pixel by pixel, against the circle 215 px from the middle.

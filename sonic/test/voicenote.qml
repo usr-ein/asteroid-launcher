@@ -320,12 +320,6 @@ Scene {
         test.inputEvents(fifo, [[stamp, evKey, keyMenu, 0], [stamp, evSyn, 0, 0]])
     }
 
-    // The calls a trace holds without the period's, which only the first hold
-    // asks.
-    function calls() {
-        return desktop.trace.filter(function(c) { return c.indexOf("req_cpu_keepalive_period") === -1 })
-    }
-
     function stripped(list) {
         return list.map(function(c) { return c.replace(/NOTE-\d+/, "NOTE").replace(/ \d{4,}$/, " <time>") })
     }
