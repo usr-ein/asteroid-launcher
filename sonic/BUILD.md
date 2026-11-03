@@ -295,12 +295,22 @@ they did.
   - A confirmed hold never ends in `singleClicked()` or `doubleClicked()`.
   - A hold ends without its release if its device goes away, or if another press
     comes with the release lost, and it's no click then.
-- **Where a hold records:** `voicebutton.js`'s `canRecord(displayOn, ambient,
-  homeActive, panelX, panelY)`: with the display off, or ambient, or the home in
-  front with the panels on the face, (0, 0). Not over an app, the app list, the
-  Today screen, the quick panel or the notifications, with the display on: a
-  hold does nothing there. The launcher closes an app 5 s after the display goes
-  off, so behind a dark screen it's the face.
+- **Where a hold records** (the user's rule: "on the main watchface (not in an
+  app)", with music playing, with stopwatches or timers on, "not just when the
+  regular watchface is shown"): `voicebutton.js`'s `canRecord(displayOn, ambient,
+  homeActive, panelX, panelY)` is `homeActive` with the panels at (0, 0), the
+  home's face page, whatever the face shows (the music face's cover, the rings
+  face with timers or stopwatches, the door, the plain face) and whatever the
+  display does, on, ambient or off. It never reads the face's mode, which only
+  the short press does (`ringsbutton.js`). `displayOn` and `ambient` are in the
+  signature so that the tests can show they make no difference.
+  - **Never** inside an app, nor on another panel (the notifications at (-1, 0),
+    the quick panel at (0, -1), the app list at (0, 1), Today at (1, 0)), with
+    the screen off too: a hold does nothing there.
+  - **With the screen off,** the face is in front soon enough: MainScreen moves
+    the panels back to (0, 0) 150 ms after the display goes off, ambient mode
+    included, and compositor.qml closes the app in front 5 s after. Until then
+    an app that was open is still in front, and a hold records nothing.
 - **What the hold does** (`src/qml/compositor/VoiceNoteHold.qml`, a piece of the
   compositor that the tests run with stand-ins, as `Flashlight.qml` is):
   - **At the press,** where the guard allows and ioslink is on the session bus:

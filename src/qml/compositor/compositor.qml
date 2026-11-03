@@ -175,8 +175,9 @@ Item {
                 appLauncher.launchApp(app)
         }
         // A hold records a voice note (the main repo's docs/prd/voice_notes.md
-        // § 8.2): from the face with the screen on, and with the screen off or
-        // in ambient. voiceNote does the rest, and nothing with no ioslink.
+        // § 8.2) on the home's face page, whatever the face shows and whatever
+        // the display does; never in an app or on another panel. voiceNote does
+        // the rest, and nothing with no ioslink.
         onHoldStarted: {
             var grid = Desktop.panelsGrid
             if (VoiceButton.canRecord(comp.displayOn, Lipstick.compositor.displayAmbient,

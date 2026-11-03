@@ -528,18 +528,46 @@ Scene {
             })
         },
         function(done) {
-            // The guard: where a hold records a note, each condition in turn.
-            expectEqual(VoiceButton.canRecord(true, false, true, 0, 0), true, "on the face, the display on: a note")
-            expectEqual(VoiceButton.canRecord(false, false, true, 0, 0), true, "the display off: a note")
-            expectEqual(VoiceButton.canRecord(false, false, false, 1, 1), true, "the display off, wherever the panels are and an app in front: a note")
-            expectEqual(VoiceButton.canRecord(true, true, true, 0, 0), true, "ambient: a note")
-            expectEqual(VoiceButton.canRecord(true, true, false, 0, 1), true, "ambient, wherever the panels are: a note")
-            expectEqual(VoiceButton.canRecord(true, false, false, 0, 0), false, "an app in front: none")
-            expectEqual(VoiceButton.canRecord(true, false, true, 1, 0), false, "the Today panel: none")
-            expectEqual(VoiceButton.canRecord(true, false, true, 0, 1), false, "the app list: none")
-            expectEqual(VoiceButton.canRecord(true, false, true, 0, -1), false, "the quick panel: none")
-            expectEqual(VoiceButton.canRecord(true, false, true, -1, -1), false, "the panels not there yet: none")
+            // The guard (the user's rule): a hold records on the home's face
+            // page, whatever the face shows and whatever the display does:
+            // home in front, panels at (0, 0). Never in an app, nor on another
+            // panel, with the screen off too.
+            var displays = [{name: "on", displayOn: true, ambient: false},
+                            {name: "ambient", displayOn: true, ambient: true},
+                            {name: "off", displayOn: false, ambient: false},
+                            {name: "off and ambient", displayOn: false, ambient: true}]
+            // What the face shows is no input of the guard. It is one of the
+            // single press, whose app is the one of the rings the face shows.
+            var faces = [{name: "the music face's cover", ringsView: "", app: ""},
+                         {name: "the rings face, timers running", ringsView: "timers", app: "sonic-timer"},
+                         {name: "the rings face, stopwatches running", ringsView: "stopwatches", app: "sonic-stopwatch"},
+                         {name: "the door glyph", ringsView: "", app: ""},
+                         {name: "the plain digital face", ringsView: "", app: ""}]
+            faces.forEach(function(f) {
+                expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, true, 0, 0) }),
+                            [true, true, true, true], "a hold records on " + f.name + ", with the display on, ambient and off")
+                expectEqual(displays.map(function(d) { return RingsButton.app(d.displayOn, d.ambient, true, 0, 0, f.ringsView) }),
+                            [f.app, "", "", ""], "and a short press there opens " + (f.app === "" ? "no app" : f.app) + ", with the display on only, as before")
+            })
+            expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, false, 0, 0) }),
+                        [false, false, false, false], "in an app (the home not in front), none, with the display on, ambient and off")
+            expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, false, 1, 1) }),
+                        [false, false, false, false], "in an app, wherever the panels were left, none")
+            var panels = [{name: "Today", x: 1, y: 0}, {name: "the notifications", x: -1, y: 0},
+                          {name: "the app list", x: 0, y: 1}, {name: "the quick panel", x: 0, y: -1},
+                          {name: "the panels not there yet", x: -1, y: -1}]
+            panels.forEach(function(p) {
+                expectEqual(displays.map(function(d) { return VoiceButton.canRecord(d.displayOn, d.ambient, true, p.x, p.y) }),
+                            [false, false, false, false], "on " + p.name + ", none, with the display on, ambient and off")
+            })
             expectEqual(VoiceButton.canRecord(true, false, undefined, 0, 0), false, "the home not known: none")
+            // The compositor's handler gives the guard the home and the grid's
+            // position, and never reads the face's mode.
+            var handler = sh("sed -n '/onHoldStarted: {/,/^        }/p' /src/src/qml/compositor/compositor.qml").output
+            check(handler.indexOf("homeActive") !== -1 && handler.indexOf("currentHorizontalPos") !== -1 && handler.indexOf("currentVerticalPos") !== -1,
+                  "compositor.qml's handler asks the guard with the home and the grid's position")
+            check(handler.indexOf("ringsView") === -1 && handler.indexOf("Desktop.desktop") === -1,
+                  "and never reads the face's mode")
             var wiring = sh("grep -c 'onHoldStarted' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'VoiceButton.canRecord' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'voiceNote.start(pressedAt)' /src/src/qml/compositor/compositor.qml;"
