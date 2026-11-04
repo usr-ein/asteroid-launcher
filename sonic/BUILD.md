@@ -405,29 +405,16 @@ they did.
     - the duration, Noto Sans Light 104 px, centred on y 150, `0:00` to `9:59`
       and then `10:00`, on the note's own clock, State's `startedAt`;
     - the waveform: round-ended bars 6 px wide every 10 px about y 272, up to
-      100 px tall, one per 100 ms, the newest at x 330 and a red 2 px "now" line
-      at x 340, the oldest fading out to the left of x 116. About 30 Rectangles
-      of the scene graph, and no Canvas. What a bar draws (voicenoteview.js):
-      - **its level, smoothed:** an envelope in dB through the 50 ms levels,
-        rising quickly (attack 80 ms) and falling slowly (release 300 ms), and
-        a bar is its mean at the bar's two levels. 50 ms alone draws low: the
-        start tick at 22 px (58 before), a click at 27 px; a word falls away over
-        0.3 s instead of flickering between full and flat;
-      - **measured from the room's floor:** the 15th percentile of the last 8 s of
-        bars (their mean in dB of two levels), between -60 and -42 dBFS. Bars
-        before the press, and bars with no level yet, count as -55 dBFS, the
-        user's quiet room as measured, so the first bars never set the floor (a
-        microphone can start with silence or a pop). It falls at once, as soon as
-        15 % of the window is quieter, and rises 1 dB a second at the most;
-      - a bar is flat (6 px) up to 8 dB over the floor, full height from -27
-        dBFS, and between the two a smoothstep.
-
-      A quiet room draws as a flat line, and speech as tall bars, with the
-      pauses between phrases showing. A louder room is followed within seconds:
-      it draws as activity only until the floor has risen to it. The cost: the
-      floor climbs into a soft voice's gaps too, within a minute of continuous
-      speech, and only its peaks show after that (the mockup's speech, 5 to 8 dB
-      under the user's, looped); the user's own speech keeps its height;
+      100 px tall, one per 100 ms, the mean in dB of its two 50 ms levels (the louder of the two hid the gaps between words), the
+      newest at x 330 and a red 2 px "now" line at x 340, the oldest fading out to
+      the left of x 116. About 30 Rectangles of the scene graph, and no Canvas.
+      What a level draws as is measured from the room's floor (voicenoteview.js):
+      the floor is the 15th percentile of the last 8 s of bars, between -60 and
+      -50 dBFS, starting at -52, falling at once and rising 0.1 dB a second at the
+      most; a bar is flat (6 px) up to 8 dB over it, full height from -27 dBFS, and
+      between the two a smoothstep. A quiet room draws as a flat line and speech
+      as tall bars with gaps between the words; a room louder than -50 dBFS draws
+      as activity, while speech keeps its height;
     - one line, 26 px, centred on y 372: "Release to save", then from 9:30 "30 s
       left" to "1 s left" in amber, and at the end "Saved · sending", "Saved · 3 on
       watch", "Saved · 18:02 dropped" (amber; "Saved · 3 dropped" for several),
@@ -451,17 +438,22 @@ they did.
     the note.
   - **Its motion, one bar a tick, a bar drawn once:** a bar is drawn only once
     all its levels are in, and keeps its height from then on; the row moves one
-    bar at each tick, never two, never back. The levels come in bursts (ioslink
-    sends them every 100 ms, after the capture's delay), so the row runs 250 ms
-    behind the note's clock, and each tick is set for the middle between two
-    bars' starts on that clock, so that a tick a frame early or late still moves
-    it one bar. When the levels are later than that, the row waits, then catches
-    up a bar every 60 ms. Levels that come in a burst once the screen shows are
-    drawn bar by bar at that pace, never several at once; those gathered before
-    it shows open it. #19 drew the clock's newest bar whatever had come: with the
-    watch's delays, half of the bars changed height after they were drawn (a
-    bar with one of its two levels, then both), up to 59 px, and the row stalled
-    or skipped a bar when a tick fell near a bar's start.
+    bar at each tick, never two, never back. The levels come in bursts: on the
+    watch (a hold at 00:10 on 2026-11-04, its Levels as they came) a level
+    reaches the launcher 135 to 190 ms after its 50 ms end, the capture's delay
+    and ioslink's 100 ms between sends, so a bar has its second level about
+    315 ms after it began. So the row runs 300 ms behind the note's clock, and
+    each tick is set for the middle between two bars' starts on that clock, so
+    that a tick a frame early or late still moves it one bar. When the levels
+    are later than that, the row waits, then catches up a bar every 60 ms.
+    Levels that come in a burst once the screen shows are drawn bar by bar at
+    that pace, never several at once; those gathered before it shows open it.
+    #19 drew the clock's newest bar, 150 ms behind, whatever had come: on that
+    hold, 68 bars changed height after they were drawn (a bar empty, or with one
+    of its two levels, then both), by up to 100 px, and the first second peaked
+    at 98 px where its whole bars are 85 at the most (its room, about -40 dBFS,
+    and -29 after the start tick, which #19's floor draws as activity); and the
+    row stalled or skipped a bar when a tick fell near a bar's start.
   - **Its frames:** the row of bars slides 10 px over each 100 ms, or with
     `slide` false steps 10 px every 100 ms, which draws about a sixth of the frames
     (10 a second, not 60). The dot's breathing steps with it.
@@ -608,31 +600,31 @@ in the launcher, in a 454 × 454 view: the watch's screen.
       they were. With the display on or ambient, in an app or on another panel,
       a hold calls nothing at all.
     - **The waveform's mapping,** against the fixtures of
-      `voicenote-levels.js`: the user's own note of 22:30 (its first second, the
-      start tick in it, low; its quiet room, 11 to 15.5 s, a flat line once his
-      last word has fallen away, by 11.3 s; his speech around it tall, to the
-      top, with the pauses between his phrases showing; a bar's rise and fall
-      from the one before it bounded; the screen at five moments of it,
+      `voicenote-levels.js`: the user's own note of 22:30 (its quiet room, 11 to
+      15.5 s, draws as a flat line, and his speech around it tall with the gaps
+      between his words showing; the screen at five moments of it,
       `voicenote-note-*.png` and the sheet `voicenote-note2230.png`), and the
       earlier ones, the mockup's speech and room note, a busier room and two
       synthetic quiet rooms: a quiet room flat, the busier room low and far lower
       than his speech, the mockup's speech (5 to 8 dB under his) still shown, and
-      its peaks a minute and a half into it; and the floor: the first bars don't
-      set it (silence or a pop as the microphone starts), a quieter room lowers it
-      once 15 % of its 8 s are quieter, a louder one raises it 1 dB a second at
-      the most and never above -42 dBFS, a bar's floor and height depend on the
-      bars before it, and a late chunk of levels gives what the whole would have.
-      A tick of the view costs about 0.3 ms under emulation.
-    - **The waveform live** (`voicenote-live.js`): the user's note fed to the
-      screen as ioslink feeds it, through the screen's own tick, frame by frame,
-      on a clock the scene holds: a level every 50 ms from the press; every
-      100 ms, 40 ms after it was heard, as ioslink sends them; the first half
-      second's in a burst as the screen shows; the first second's held back to
-      1.2 s; and 200 ms late, past the row's lag. Each time every bar is drawn
-      and keeps its height, the row moves one bar a tick at the most and never
-      back, the first second isn't tall, the newest bar's change from one frame
-      to the next is bounded, the quiet room stays flat, speech reaches the top,
-      and the whole note draws the same as the view draws it at once.
+      none of them becoming the floor over a long note; and the floor: a quieter room lowers it, a louder
+      one raises it 0.1 dB a second and never above -50 dBFS, a bar's floor depends
+      on the bars before it, and a late chunk of levels gives what the whole would
+      have. A tick of the view costs 0.3 ms under emulation.
+    - **The waveform live** (`voicenote-live.js`), through the screen's own tick,
+      frame by frame, on a clock the scene holds: the hold of 00:10 on the
+      watch, its Levels signals at the times they came (`LIVE_0010` in
+      `voicenote-levels.js`, the room at about -40 dBFS); and the user's note,
+      its levels as they are heard, a level every 50 ms from the press, as
+      ioslink sends them on the watch (every 100 ms, 135 ms after), the first
+      half second's in a burst as the screen shows, the first second's held
+      back to 1.2 s, and 235 ms late, past the row's lag. Each time every bar is
+      drawn and keeps its height, the row moves one bar a tick at the most and
+      never back, and never waits on the watch's own timing; the first second
+      isn't full height (the hold's room 85 px at the most, nothing before
+      0.5 s over 30; the note's start tick 58); the note's quiet room stays flat
+      and his speech reaches the top; and every bar is the view's, as it draws
+      the whole at once.
     - **The screen kept on,** against the stand-in for mce, which plays mce's own
       rules (it's checked first): it refuses an unlock with the display off and
       takes it once the display is on, says its touch lock's mode after every
@@ -667,9 +659,11 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     says so, and passes.
   - `voicenote-docs`, on request, not in the full run: the pictures of
     `sonic/docs/`, the recording screen live on the user's note of 22:30 as
-    ioslink sends its levels: `voicenote-docs-first2s.png`, the screen at eight
-    moments of the first 2 s, and `voicenote-docs-whole.png`, every bar of the
-    note as it was first drawn, with the height it changed to after, if it did.
+    ioslink sends its levels on the watch: `voicenote-docs-first2s.png`, the
+    screen at eight moments of the first 2 s, and `voicenote-docs-whole.png`,
+    every bar of the note as it was first drawn, with the height it changed to
+    after, if it did; and `voicenote-docs-watch-first2s.png`, the hold of 00:10
+    on the watch at the same moments, its Levels as they came.
     It loads the recording screen alone, so that it runs on an older build: the
     pictures of before are this scene on that build's QML.
   - `face` runs `FaceLoader` with invented faces that it writes to

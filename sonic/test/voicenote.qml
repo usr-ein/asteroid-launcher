@@ -44,19 +44,16 @@
  *   on another panel, and calls nothing at all.
  * - The waveform's mapping, against the fixtures of voicenote-levels.js: the
  *   user's own note of 22:30 (its quiet room draws flat, his speech tall, the
- *   pauses between his phrases showing), a quiet room, a busier room, quieter
- *   speech; the floor, from the measured quiet room, is the room's whatever
- *   speech does to it, and the first bars never set it; the start tick and a
- *   click draw low; and the screen at five moments of that note, as a contact
- *   sheet.
- * - The waveform live: the user's note fed as ioslink feeds it, a level every
- *   50 ms from the press, through the screen's own tick on a clock the scene
- *   holds, frame by frame: the first second isn't tall, a bar keeps its height
- *   once drawn, the row moves one bar a tick, the quiet room stays flat and the
- *   speech reaches the top; and the same with the levels late, in bursts, and
- *   the first half second's held back until the screen shows. Its first 2 s and
- *   the whole note are screenshots, voicenote-live-first2s.png and
- *   voicenote-live-whole.png.
+ *   gaps between his words showing), a quiet room, a busier room, quieter
+ *   speech; the floor is the room's whatever speech does to it; and the screen
+ *   at five moments of that note, as a contact sheet.
+ * - The waveform live, through the screen's own tick, frame by frame on a
+ *   clock the scene holds: a hold on the watch, its Levels signals as they came
+ *   (voicenote-levels.js' LIVE_0010), and the user's note fed as heard, as
+ *   ioslink sends them on the watch, in bursts and late. A bar keeps its height
+ *   once drawn, the row moves one bar a tick at the most and never back, and
+ *   never waits on the watch's own timing; the first second isn't full height;
+ *   each bar is the view's.
  * - The screen kept on, against the stand-in for mce, which plays mce's own
  *   rules: an unlock refused while the display is off and allowed once it is
  *   on, a pause ignored unless the display is on and the touch lock off, and
@@ -549,15 +546,15 @@ Scene {
                         ["0:00", "0:00", "0:42", "4:07", "9:59", "10:00", "10:00"], "the duration: m:ss, from 0:00 to 9:59, then 10:00")
             expectEqual([View.barHeight(-60, -52), View.barHeight(-44, -52), View.barHeight(-35.5, -52), View.barHeight(-27, -52), View.barHeight(0, -52)].map(Math.round),
                         [6, 6, 53, 100, 100], "a bar is flat up to 8 dB over the floor, 100 px from -27 dBFS, and an S-curve between: 53 px in the middle, no more or less")
-            expectEqual([View.barHeight(-44, -58), View.barHeight(-44, -52), View.barHeight(-44)].map(Math.round), [22, 6, 12],
-                        "it is measured from the room's floor: -44 dBFS is 22 px over a quiet room's, flat over a usual one's, and the floor is the measured quiet room's, -55, until the note says otherwise")
+            expectEqual([View.barHeight(-44, -58), View.barHeight(-44, -52), View.barHeight(-44)].map(Math.round), [22, 6, 6],
+                        "it is measured from the room's floor: -44 dBFS is 22 px over a quiet room's, flat over a usual one's, and the floor is -52 until the note says otherwise")
             var bars = []
             View.addLevels(bars, 200, [-5000, -3000, -4000])
             View.addLevels(bars, 450, [-2500])
             expectEqual([bars[2], bars[3], bars[4], bars[5]], [-40, -40, -25, undefined],
                         "a bar is the mean in dB of its two 50 ms levels: 200 and 250 ms are one, 300 ms another, and one level alone is a bar until its other comes")
-            expectEqual(View.heights(bars, 4, 5).map(Math.round), [76, 25, 6, 0, 0],
-                        "the heights run back from the newest bar, its levels smoothed from the room's, over each one's floor, and 0 where there is no level")
+            expectEqual(View.heights(bars, 4, 5).map(Math.round), [100, 19, 19, 0, 0],
+                        "the heights run back from the newest bar, over each one's floor, and 0 where there is no level")
             expectEqual([View.lastComplete([]), View.lastComplete(bars)], [-1, 4],
                         "the newest bar with all its levels: none, then the one with its second level")
             var halfway = []
@@ -567,7 +564,7 @@ Scene {
             expectEqual(bars[3], -35, "the other level of a bar comes: -40 and -30 are -35")
             View.addLevels(bars, 350, [-3000])
             expectEqual(bars[3], -35, "and comes again: the same")
-            expectEqual([View.newestBar(1000, 250), View.newestBar(249, 250)], [7, -1], "the newest bar leaves out the lag")
+            expectEqual([View.newestBar(1000, 300), View.newestBar(299, 300)], [7, -1], "the newest bar leaves out the lag")
             expectEqual([View.breath(0), View.breath(500), View.breath(1000)].map(function(v) { return Math.round(v * 100) / 100 }),
                         [1, 0.35, 1], "the dot breathes once a second")
             expectEqual([View.recordingLine(42000), View.recordingLine(569000), View.recordingLine(570000), View.recordingLine(581000), View.recordingLine(599500), View.recordingLine(600000)],
@@ -606,11 +603,9 @@ Scene {
 
         // The waveform's mapping, against the fixtures of voicenote-levels.js: the
         // user's own note of 22:30 first, with the quiet room he recorded in it (the
-        // room flat, the speech around it tall, the pauses between his phrases
-        // showing, the start tick low), then the earlier ones: a quiet room, a
-        // busier room, and quieter speech. The floor starts at the measured quiet
-        // room, the first bars never set it, and it is the room's, whatever speech
-        // does to it.
+        // room flat, the speech around it tall, the gaps between the words
+        // showing), then the earlier ones: a quiet room, a busier room, and
+        // quieter speech. The floor is the room's, whatever speech does to it.
         function(done) {
             function barsOf(text) {
                 var bars = []
@@ -626,17 +621,11 @@ Scene {
             function top(list) { return Math.max.apply(null, list) }
             function flat(h) { return h <= View.BAR_MIN + 3 }
             function low(h) { return h < 35 }
-            // Pauses: runs of 2 bars or more under 35 px.
-            function pauses(list) {
-                var n = 0, run = 0
-                for (var i = 0; i <= list.length; i++) {
-                    if (i < list.length && low(list[i])) {
-                        run++
-                    } else {
-                        if (run >= 2)
-                            n++
-                        run = 0
-                    }
+            function dips(list) {
+                var n = 0
+                for (var i = 1; i < list.length - 1; i++) {
+                    if (list[i - 1] - list[i] >= 35 && list[i + 1] - list[i] >= 35)
+                        n++
                 }
                 return n
             }
@@ -644,40 +633,26 @@ Scene {
                 return "flat " + share(list, flat).toFixed(2) + ", median " + at(list, 0.5).toFixed(0) + " px, p75 " + at(list, 0.75).toFixed(0)
                        + " px, max " + top(list).toFixed(0) + " px, under 35 px " + share(list, low).toFixed(2)
             }
-            function rounded(list) { return list.map(Math.round).join(" ") }
 
-            // The user's note. Bars 110 to 154 are the quiet room he recorded (11.0 to
-            // 15.5 s): the first three the release of his last word (10.9 s, -26
-            // dBFS), then the room; 12 to 48 and 160 to 215 are speech (1.2 to 4.9 s
-            // and 16 to 21.6 s), and 0 to 9 the first second, the start tick at 0.45 s.
+            // The user's note. Bars 112 to 153 are the quiet room he recorded (11.2 to
+            // 15.3 s); 12 to 48 and 160 to 215 are speech (1.2 to 4.9 s and 16 to 21.6 s).
             var note = drawn(Fixtures.NOTE_2230)
-            var release = note.slice(110, 113), room = note.slice(113, 155)
+            var room = note.slice(112, 154)
             var first = note.slice(12, 49), second = note.slice(160, 216)
             var talk = first.concat(second)
-            test.log("     bars: the user's first second: " + rounded(note.slice(0, 10)))
-            test.log("     bars: the user's quiet room: " + describe(room) + ", after his last word's " + rounded(release))
-            test.log("     bars: the user's speech: " + describe(talk) + ", " + (pauses(note.slice(12, 110)) + pauses(note.slice(160, 260))) + " pauses")
-            check(top(note.slice(0, 10)) < 35, "the first second, the start tick in it, draws low: " + rounded(note.slice(0, 10)))
-            check(release[0] >= release[1] && release[1] >= release[2] && release[2] <= View.BAR_MIN + 9,
-                  "his last word falls away in 0.3 s: " + rounded(release))
-            check(share(room, flat) >= 0.95 && top(room) <= 12, "and the quiet room he recorded draws flat from 11.3 s to 15.5 s: " + describe(room))
-            check(at(talk, 0.5) >= 80 && at(talk, 0.75) >= 90 && share(talk, function(h) { return h >= 80 }) >= 0.6 && top(talk) >= 99,
-                  "his speech around it draws tall, to the top: " + describe(talk))
-            check(pauses(note.slice(12, 110)) + pauses(note.slice(160, 260)) >= 5,
-                  "with the pauses between his phrases showing: " + (pauses(note.slice(12, 110)) + pauses(note.slice(160, 260))) + " runs of bars under 35 px")
-            var rise = 0, fall = 0
-            for (var k = 1; k < note.length; k++) {
-                rise = Math.max(rise, note[k] - note[k - 1])
-                fall = Math.max(fall, note[k - 1] - note[k])
-            }
-            check(rise <= 80 && fall <= 50, "a bar rises from the one before it by " + rise.toFixed(0) + " px at the most, and falls by " + fall.toFixed(0)
-                  + ": smoothed, attack " + View.ATTACK_MS + " ms and release " + View.RELEASE_MS + " ms")
+            test.log("     bars: the user's quiet room: " + describe(room))
+            test.log("     bars: the user's speech: " + describe(talk) + ", " + (dips(first) + dips(second)) + " dips")
+            check(share(room, flat) >= 0.98 && top(room) <= 12, "the quiet room the user recorded draws flat: " + describe(room))
+            check(at(talk, 0.5) >= 70 && at(talk, 0.75) >= 85 && share(talk, function(h) { return h >= 80 }) >= 0.45,
+                  "and his speech around it draws tall: " + describe(talk))
+            check(share(talk, low) >= 0.1 && share(talk, low) <= 0.3 && dips(first) + dips(second) >= 4,
+                  "with the gaps between his words showing: " + share(talk, low).toFixed(2) + " of the bars are under 35 px, and " + (dips(first) + dips(second)) + " are dips")
             var bars = barsOf(Fixtures.NOTE_2230)
-            function row(ms) { return View.heights(bars, View.newestBar(ms, 250), 30).reverse() }
-            check(row(15000).every(function(h) { return h <= View.BAR_MIN + 4 }), "at 15 s the screen is a flat line: " + rounded(row(15000)))
-            check(at(row(4000), 0.5) >= 70 && at(row(20000), 0.5) >= 70, "and tall at 4 s and at 20 s: " + at(row(4000), 0.5).toFixed(0) + " and " + at(row(20000), 0.5).toFixed(0) + " px at the median")
+            function row(ms) { return View.heights(bars, View.newestBar(ms, 300), 30).reverse() }
+            check(row(15000).every(function(h) { return h <= View.BAR_MIN + 4 }), "at 15 s the screen is a flat line: " + row(15000).map(Math.round).join(" "))
+            check(at(row(4000), 0.5) >= 60 && at(row(20000), 0.5) >= 60, "and tall at 4 s and at 20 s: " + at(row(4000), 0.5).toFixed(0) + " and " + at(row(20000), 0.5).toFixed(0) + " px at the median")
             var begins = row(17000)
-            check(begins.slice(0, 22).every(function(h) { return h <= View.BAR_MIN + 4 }) && top(begins.slice(26)) >= 30, "at 17 s the room, then speech beginning at the right: " + rounded(begins))
+            check(begins.slice(0, 22).every(function(h) { return h <= View.BAR_MIN + 4 }) && top(begins.slice(26)) >= 30, "at 17 s the room, then speech beginning at the right: " + begins.map(Math.round).join(" "))
             var padded = Fixtures.NOTE_2230 + "A"
             var three = barsOf(padded + padded + padded)
             var third = View.heights(three, View.lastBar(three), three.length).reverse().slice(note.length * 2).slice(160, 216)
@@ -693,63 +668,40 @@ Scene {
             test.log("     bars: the mockup's speech: " + describe(speech))
             check(share(quiet, flat) >= 0.98 && top(quiet) <= 12, "a quiet room (-52 dBFS, 3 either way) draws flat: " + describe(quiet))
             check(share(skewed, flat) >= 0.98 && top(skewed) <= 15, "so does one with a heavy tail: " + describe(skewed))
-            check(at(busy, 0.5) <= 20 && at(busy, 0.75) <= 50, "the busier room draws low: " + describe(busy))
-            check(at(busy, 0.5) + 60 <= at(talk, 0.5), "and far lower than the user's speech: median " + at(busy, 0.5).toFixed(0) + " against " + at(talk, 0.5).toFixed(0) + " px")
-            check(top(speech) >= 85 && share(speech, function(h) { return h > 35 }) >= 0.15,
-                  "the mockup's speech, 5 to 8 dB under the user's, still shows, near the top: " + describe(speech))
-            // A floor that rises 1 dB a second follows a louder room within seconds,
-            // and climbs into a soft voice's gaps within a minute: the mockup's
-            // speech, looped, keeps only its peaks there; the user's own keeps all.
+            check(share(busy, flat) >= 0.4 && at(busy, 0.5) <= 15, "the busier room draws low: " + describe(busy))
+            check(at(busy, 0.5) + 30 <= at(talk, 0.5), "and far lower than the user's speech: median " + at(busy, 0.5).toFixed(0) + " against " + at(talk, 0.5).toFixed(0) + " px")
+            check(top(speech) >= 90 && share(speech, function(h) { return h > 35 }) >= 0.2,
+                  "the mockup's speech, 5 to 8 dB under the user's, still shows, to the top: " + describe(speech))
             var three2 = barsOf(Fixtures.SPEECH + Fixtures.SPEECH + Fixtures.SPEECH)
             var last = View.heights(three2, View.lastBar(three2), three2.length).reverse().slice(speech.length * 2)
-            check(top(last) >= 60 && View.floors(three2, three2.length - 1)[three2.length - 1] <= View.FLOOR_TOP,
-                  "and a minute and a half into it, its peaks still show: " + top(last).toFixed(0) + " px at the most, over a floor of "
-                  + View.floors(three2, three2.length - 1)[three2.length - 1].toFixed(1) + " dBFS")
+            check(share(last, function(h) { return h > 35 }) >= 0.75 * share(speech, function(h) { return h > 35 }),
+                  "and speech doesn't become the floor: the third time through it shows as much (" + share(last, function(h) { return h > 35 }).toFixed(2) + " against " + share(speech, function(h) { return h > 35 }).toFixed(2) + ")")
 
             // The floor.
-            function encode(list) { return list.map(function(db) { return String.fromCharCode(Math.round(db) + 125) }).join("") }
-            function steady(n, db, swing) {
-                var out = []
-                for (var i = 0; i < n; i++)
-                    out.push(db + swing * Math.sin(i * 1.7))
-                return out
-            }
-            var silence = barsOf(encode(steady(6, -60, 0).concat(steady(200, -50, 2))))
-            check(View.floors(silence, 12).every(function(f) { return f === View.FLOOR_START }) && top(View.heights(silence, 19, 20)) <= View.BAR_MIN + 3,
-                  "the first bars don't set the floor: 0.3 s of silence from the microphone leaves it at " + View.FLOOR_START + " dBFS, and the room after it, -50, draws flat")
-            var pop = barsOf(encode([-15].concat(steady(200, -55, 2))))
-            check(View.floors(pop, 10).every(function(f) { return f === View.FLOOR_START }) && View.heights(pop, 0, 1)[0] < 60,
-                  "nor does a pop as the microphone starts, which draws at " + View.heights(pop, 0, 1)[0].toFixed(0) + " px, smoothed")
             var fixed = []
             View.addLevels(fixed, 0, Array(200).fill(-5800))
-            View.addLevels(fixed, 10000, Array(10).fill(-4600))
-            check(View.floors(fixed, 104)[104] === -58 && View.heights(fixed, 104, 1)[0] >= 10 && View.barHeight(-46, -52) === View.BAR_MIN,
-                  "a quieter room lowers the floor at once: -46 dBFS is " + View.heights(fixed, 104, 1)[0].toFixed(0) + " px over -58, flat over -52")
-            var quieter = View.floors(fixed, 20)
-            check(quieter[10] === View.FLOOR_START && quieter[12] === -58, "once 15 % of its 8 s are quieter, 1.2 s: " + quieter[10] + " then " + quieter[12])
+            View.addLevels(fixed, 10000, [-4600])
+            check(View.heights(fixed, 100, 1)[0] >= 10 && View.barHeight(-46, -52) === View.BAR_MIN,
+                  "a quieter room lowers the floor at once: -46 dBFS is " + View.heights(fixed, 100, 1)[0].toFixed(0) + " px over -58, flat over -52")
             var loud = []
             View.addLevels(loud, 0, Array(800).fill(-4700))
-            var floors = View.floors(loud, 399), fastest = 0
-            for (var j = 1; j < 400; j++)
-                fastest = Math.max(fastest, floors[j] - floors[j - 1])
-            check(fastest <= View.FLOOR_RISE + 1e-9 && floors[399] === -47,
-                  "a louder room raises the floor by 1 dB a second at the most: " + (fastest * 10).toFixed(2) + " dB a second, and -47 in the end")
+            var floors = View.floors(loud, 399)
+            check(Math.abs(floors[99] - (View.FLOOR_START + 100 * View.FLOOR_RISE)) < 0.011,
+                  "a louder room raises the floor slowly: " + floors[99].toFixed(2) + " dBFS after 10 s of -47")
             var loudest = []
             View.addLevels(loudest, 0, Array(1200).fill(-3000))
             check(top(View.floors(loudest, 599)) === View.FLOOR_TOP, "and never above " + View.FLOOR_TOP + " dBFS, in a room as loud as speech: " + top(View.floors(loudest, 599)))
             var all = barsOf(Fixtures.SPEECH)
             var head = barsOf(Fixtures.SPEECH.slice(0, 82))
             expectEqual(View.floors(head, 40), View.floors(all, 200).slice(0, 41), "a bar's floor depends on the bars before it alone")
-            expectEqual(View.heights(head, 40, 41), View.heights(all, 40, 41), "and so does its height")
             var late = []
             View.addLevels(late, 0, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(0, 40)))
             View.addLevels(late, 4000, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(80, 120)))
-            View.heights(late, 59, 60)
+            View.floors(late, 59)
             View.addLevels(late, 2000, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(40, 80)))
             var whole = []
             View.addLevels(whole, 0, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(0, 120)))
-            expectEqual({floors: View.floors(late, 59), heights: View.heights(late, 59, 60)}, {floors: View.floors(whole, 59), heights: View.heights(whole, 59, 60)},
-                        "a late chunk of levels works the floors and the heights out again from its first bar, to what they would have been")
+            expectEqual(View.floors(late, 59), View.floors(whole, 59), "a late chunk of levels works the floors out again from its first bar, to what they would have been")
 
             // What it costs the screen's tick: one bar more each time, over a minute's worth.
             var run = []
@@ -765,37 +717,25 @@ Scene {
             done()
         },
 
-        // The waveform live: the user's note of 22:30 as ioslink feeds the screen,
-        // through the screen's own tick, frame by frame on a clock the scene holds
-        // (voicenote-live.js). The screen shows at 0.5 s, the hold's threshold.
-        // First as the levels are heard, one every 50 ms from the press; then as
-        // ioslink sends them, every 100 ms after the capture's delay; with the
-        // first half second's in a burst as the screen shows, and the first
-        // second's held back past it; and with the levels later than the screen's
-        // lag. Each time: the first second isn't tall, a bar keeps its height once
-        // drawn, the row moves one bar a tick at the most and never back, the
-        // newest bar's change from frame to frame is bounded, the quiet room stays
-        // flat, speech reaches the top, and the whole note draws the same.
+        // The waveform live, through the screen's own tick, frame by frame on a
+        // clock the scene holds (voicenote-live.js). The screen shows at 0.5 s,
+        // the hold's threshold. First the hold of 2026-11-04 00:10 on the watch,
+        // its Levels signals at the times they came (LIVE_0010): the room, not
+        // speech. Then the user's note of 22:30: its levels as they are heard,
+        // one every 50 ms from the press; as ioslink sends them on the watch,
+        // every 100 ms, 135 ms after they were heard; the first half second's in
+        // a burst as the screen shows; the first second's held back to 1.2 s;
+        // and later than the screen's lag. Each time: a bar keeps its height once
+        // drawn, the row moves one bar a tick at the most and never back, and
+        // without waiting on the watch's own timing; the first second isn't full
+        // height; the bars are #19's, as the view draws the whole note at once.
         function(done) {
-            var levels = desktop.note2230
-            var noteMs = 50 * levels.length
-            // The last bar with both its levels: the one after it has its first
-            // alone, and only the frozen screen at the release draws that.
-            var lastBar = Math.floor(levels.length / 2) - 1
             function top(list) { return list.length === 0 ? 0 : Math.max.apply(null, list) }
             function at(list, q) { return View.quantile(list.slice().sort(function(a, b) { return a - b }), q) }
-            var cases = [
-                {name: "as heard, a level every 50 ms", arrival: Live.arrivals("live"), stalls: 0},
-                {name: "as ioslink sends them, every 100 ms, 40 ms late", arrival: Live.arrivals("ioslink", undefined, 40), stalls: 0},
-                {name: "the first half second's in a burst as the screen shows", arrival: Live.arrivals("live", 500), stalls: 0},
-                {name: "the first second's held back to 1.2 s", arrival: Live.arrivals("ioslink", 1200, 40), stalls: -1},
-                {name: "200 ms late, past the screen's lag", arrival: Live.arrivals("ioslink", undefined, 200), stalls: -1}
-            ]
-            var pictures = []
-            cases.forEach(function(c) {
-                var run = Live.start(overlay, levels, c.arrival, 500)
-                run.to(noteMs + 1000)
-                overlay.hide()
+            // What a run drew: each bar as first drawn, how many changed after,
+            // the row's steps and waits while there was a bar to move to, and the
+            // frames that show the first second alone.
+            function judge(run, lastBar) {
                 var seen = Live.barsSeen(run.frames)
                 var changed = 0, worst = 0
                 seen.forEach(function(list) {
@@ -808,45 +748,71 @@ Scene {
                         }
                     })
                 })
-                // While the note lasts: past its end, there is nothing to move to.
                 var during = run.frames.filter(function(f) { return f.newest < lastBar })
                 var steps = Live.steps(during)
-                var backOrMore = steps.filter(function(s) { return s < 0 || s > 1 }).length
-                var stalls = steps.filter(function(s) { return s === 0 }).length
-                var rise = 0, fall = 0
-                for (var i = 1; i < run.frames.length; i++) {
-                    var a = run.frames[i - 1], b = run.frames[i]
-                    if (b.newest === a.newest + 1 && a.newest >= 0) {
-                        rise = Math.max(rise, b.heights[0] - a.heights[0])
-                        fall = Math.max(fall, a.heights[0] - b.heights[0])
-                    }
-                }
                 var drawn = []
                 for (var k = 0; k <= lastBar; k++)
                     drawn.push(seen[k] !== undefined ? seen[k][0] : -1)
-                pictures.push(drawn)
-                // The frames that show the first second alone.
-                var firstFrames = run.frames.filter(function(f) { return f.newest <= 9 })
-                var talk = drawn.slice(12, 49).concat(drawn.slice(160, 216))
-                test.log("     live, " + c.name + ": " + run.frames.length + " frames, " + run.deliveries.length + " signals; "
-                         + stalls + " ticks waited for levels; the newest bar rose " + rise.toFixed(0) + " px and fell " + fall.toFixed(0) + " px at the most")
-                check(drawn.every(function(h) { return h >= 0 }), "live, " + c.name + ": every bar of the note is drawn")
-                check(changed === 0, "live, " + c.name + ": a bar keeps its height once drawn" + (changed === 0 ? "" : " (" + changed + " changes, " + worst.toFixed(0) + " px at the most)"))
-                check(backOrMore === 0 && (c.stalls < 0 || stalls === c.stalls),
-                      "live, " + c.name + ": the row moves one bar a tick, never two, never back" + (c.stalls < 0 ? ", waiting " + stalls + " ticks for late levels" : ""))
-                check(top(drawn.slice(0, 10)) < 35 && firstFrames.every(function(f) { return top(f.heights) < 35 }),
-                      "live, " + c.name + ": the first second isn't tall: " + top(drawn.slice(0, 10)).toFixed(0) + " px at the most, in each of the "
-                      + firstFrames.length + " frames that show it")
-                check(rise <= 80 && fall <= 50, "live, " + c.name + ": from frame to frame the newest bar rises " + rise.toFixed(0) + " px and falls " + fall.toFixed(0) + " px at the most")
-                check(top(drawn.slice(113, 155)) <= 12 && drawn[110] >= drawn[111] && drawn[111] >= drawn[112],
-                      "live, " + c.name + ": the quiet room stays flat: " + top(drawn.slice(113, 155)).toFixed(0) + " px at the most from 11.3 to 15.5 s, after the last word falls away")
-                check(top(talk) >= 99 && at(talk, 0.5) >= 80, "live, " + c.name + ": speech reaches the top: " + top(talk).toFixed(0) + " px, " + at(talk, 0.5).toFixed(0) + " px at the median")
-            })
+                return {drawn: drawn, changed: changed, worst: worst,
+                        bad: steps.filter(function(s) { return s < 0 || s > 1 }).length,
+                        stalls: steps.filter(function(s) { return s === 0 }).length,
+                        first: run.frames.filter(function(f) { return f.newest <= 9 })}
+            }
+            function common(name, j, stalls) {
+                check(j.drawn.every(function(h) { return h >= 0 }), "live, " + name + ": every bar is drawn")
+                check(j.changed === 0, "live, " + name + ": a bar keeps its height once drawn" + (j.changed === 0 ? "" : " (" + j.changed + " changes, " + j.worst.toFixed(0) + " px at the most)"))
+                check(j.bad === 0 && (stalls < 0 || j.stalls === stalls),
+                      "live, " + name + ": the row moves one bar a tick, never two, never back" + (stalls < 0 ? ", waiting " + j.stalls + " ticks for late levels" : ", and never waits"))
+            }
+
+            // The watch's own hold: the room at about -40 dBFS, -29 after the
+            // start tick (Keep at 0.52 s).
+            var replay = Live.replay(overlay, Fixtures.LIVE_0010, 500)
+            replay.to(Fixtures.LIVE_0010_STOP + 1000)
+            overlay.hide()
+            var capture = []
+            Fixtures.LIVE_0010.forEach(function(sig) { View.addLevels(capture, sig.from, sig.cb) })
+            var watchLast = View.lastComplete(capture)
+            var watch = judge(replay, watchLast)
+            test.log("     live, the hold of 00:10 on the watch: " + replay.frames.length + " frames, " + replay.deliveries.length + " signals; the first second: "
+                     + watch.drawn.slice(0, 10).map(Math.round).join(" "))
+            common("the hold of 00:10 on the watch", watch, 0)
+            check(top(watch.drawn.slice(0, 5)) <= 30 && top(watch.first.map(function(f) { return top(f.heights) })) < 90,
+                  "live, the hold of 00:10 on the watch: nothing before 0.5 s is tall (" + top(watch.drawn.slice(0, 5)).toFixed(0)
+                  + " px at the most), and the first second isn't full height: " + top(watch.first.map(function(f) { return top(f.heights) })).toFixed(0) + " px at the most")
+            check(JSON.stringify(watch.drawn) === JSON.stringify(View.heights(capture, watchLast, watchLast + 1).reverse()),
+                  "live, the hold of 00:10 on the watch: each bar as the view draws the whole of it at once")
+
+            // The user's note.
+            var levels = desktop.note2230
+            // The last bar with both its levels: the one after it has its first
+            // alone, and only the frozen screen at the release draws that.
+            var lastBar = Math.floor(levels.length / 2) - 1
             var still = []
             View.addLevels(still, 0, Fixtures.centibels(Fixtures.NOTE_2230))
             var whole = View.heights(still, lastBar, lastBar + 1).reverse()
-            check(pictures.every(function(p) { return JSON.stringify(p) === JSON.stringify(whole) }),
-                  "and the whole note draws the same however its levels came, as the view draws it at once")
+            var cases = [
+                {name: "as heard, a level every 50 ms", arrival: Live.arrivals("live"), stalls: 0},
+                {name: "as ioslink sends them on the watch, every 100 ms, 135 ms after", arrival: Live.arrivals("ioslink"), stalls: 0},
+                {name: "the first half second's in a burst as the screen shows", arrival: Live.arrivals("live", 500), stalls: 0},
+                {name: "the first second's held back to 1.2 s", arrival: Live.arrivals("ioslink", 1200), stalls: -1},
+                {name: "235 ms late, past the screen's lag", arrival: Live.arrivals("ioslink", undefined, 235), stalls: -1}
+            ]
+            cases.forEach(function(c) {
+                var run = Live.start(overlay, levels, c.arrival, 500)
+                run.to(50 * levels.length + 1000)
+                overlay.hide()
+                var j = judge(run, lastBar)
+                var talk = j.drawn.slice(12, 49).concat(j.drawn.slice(160, 216))
+                test.log("     live, " + c.name + ": " + run.frames.length + " frames, " + run.deliveries.length + " signals; " + j.stalls + " ticks waited for levels")
+                common(c.name, j, c.stalls)
+                check(top(j.drawn.slice(0, 10)) < 90 && j.first.every(function(f) { return top(f.heights) < 90 }),
+                      "live, " + c.name + ": the first second isn't full height: " + top(j.drawn.slice(0, 10)).toFixed(0) + " px at the most, the start tick, in each of the "
+                      + j.first.length + " frames that show it")
+                check(top(j.drawn.slice(110, 155)) <= 12, "live, " + c.name + ": the quiet room stays flat: " + top(j.drawn.slice(110, 155)).toFixed(0) + " px at the most from 11.0 to 15.5 s")
+                check(top(talk) >= 99 && at(talk, 0.5) >= 70, "live, " + c.name + ": speech reaches the top: " + top(talk).toFixed(0) + " px, " + at(talk, 0.5).toFixed(0) + " px at the median")
+                check(JSON.stringify(j.drawn) === JSON.stringify(whole), "live, " + c.name + ": the whole note draws as the view draws it at once")
+            })
             done()
         },
 

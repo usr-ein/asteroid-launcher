@@ -16,9 +16,10 @@ var COUNTDOWN_S = 30
 
 // The bars, in the mockup's pixels at 454 × 454: 6 px for the room and 100 px
 // for speech at its loudest. A level is the RMS of 50 ms, in dBFS; a bar covers
-// 100 ms, and its value for the room's floor is the mean in dB of its two
-// levels (the louder of the two, which the mockup took, made a click in the
-// quiet room draw 3 times as tall). What it draws is that, smoothed (below).
+// 100 ms and is the mean in dB of its two levels. (The louder of the two, which
+// the mockup took, hides the gaps between words: in the user's note of 22:30
+// the gaps between words that a bar shows are 17 of 93 in speech with the mean
+// and 7 with the louder, and a click in the quiet room draws 3 times as tall.)
 var BAR_MIN = 6
 var BAR_MAX = 100
 var BAR_MS = 100
@@ -28,34 +29,24 @@ var BAR_MS = 100
 // either, so a fixed scale can't show silence flat and speech tall: the bars
 // are measured from the room's floor, which a note tracks as it goes.
 //  - The floor is the 15th percentile of the last 80 bars (8 s), kept between
-//    FLOOR_BOTTOM and FLOOR_TOP. Bars before the press, and bars with no level
-//    yet, count as FLOOR_START, the user's quiet room as measured: the first
-//    bars come before the floor knows anything, and never set it on their own
-//    (a microphone's first tenths of a second can be silence or a pop). It
-//    falls to a quieter room at once, as soon as 15 % of the window is quieter,
-//    and rises by FLOOR_RISE a bar at the most (1 dB a second): speech has few
-//    gaps and must not become the floor, and a louder room is followed slowly.
-//    FLOOR_TOP keeps speech over a loud room: it still shows from 8 dB over it.
+//    FLOOR_BOTTOM and FLOOR_TOP. It starts at FLOOR_START, a quiet room's, falls
+//    to a quieter room at once, and rises by FLOOR_RISE a bar at the most (0.1 dB
+//    a second): speech has few gaps and must not become the floor, and a louder
+//    room is followed slowly. FLOOR_TOP is low on purpose: a room louder than it
+//    draws as activity, but speech keeps its height, whatever the length of the
+//    note.
 //  - A bar is flat (BAR_MIN) up to KNEE_DB above the floor, full height
 //    (BAR_MAX) from LOUD_DB, and between the two it follows a smoothstep: flat at
 //    both ends and steepest in the middle, so that the room's wander draws as
 //    nothing and a syllable as much.
-//  - What a bar draws is its levels smoothed, in dB: each 50 ms level moves the
-//    envelope towards it, quickly on the way up (ATTACK_MS) and slowly on the
-//    way down (RELEASE_MS), and a bar is the mean of the envelope at its two
-//    levels. A click or the start tick, 50 ms alone, draws low; a word falls
-//    away over a few bars instead of flickering between full and flat.
-var FLOOR_START = -55
-var FLOOR_TOP = -42
+var FLOOR_START = -52
+var FLOOR_TOP = -50
 var FLOOR_BOTTOM = -60
 var FLOOR_BARS = 80
 var FLOOR_PERCENTILE = 0.15
-var FLOOR_RISE = 0.1
+var FLOOR_RISE = 0.01
 var KNEE_DB = 8
 var LOUD_DB = -27
-var LEVEL_MS = 50
-var ATTACK_MS = 80
-var RELEASE_MS = 300
 
 // "0:42", "4:07", "10:00": from the press, and no more than the limit.
 function clock(ms) {
@@ -117,61 +108,35 @@ function addLevels(bars, fromMs, centibels) {
     }
 }
 
-// What the bars up to `newest` draw: {floors, drawn}, kept on the array of
-// bars. floors[k] is the room's floor for bars[k], in dBFS, and drawn[k] the
-// bar's smoothed level, in dBFS (undefined for a bar with no level), both
-// worked out from the levels up to bar k alone, so that a bar's height never
-// depends on what comes after it. They are worked out again from the first bar
-// that addLevels has changed since (the newest, but for a late chunk of
-// levels).
-function shape(bars, newest) {
-    var kept = bars.shape
+// The room's floor under the bars up to `newest`, in dBFS: floors[k] is the
+// floor for bars[k], worked out from the bars up to k alone, so that a bar's
+// height never depends on what comes after it. They are kept on the array of
+// bars, and worked out again from the first bar that addLevels has changed since
+// (the newest, but for a late chunk of levels).
+function floors(bars, newest) {
+    var kept = bars.floors
     if (kept === undefined) {
-        kept = {floors: [], drawn: [], envelope: []}
-        bars.shape = kept
+        kept = []
+        bars.floors = kept
     }
-    var from = bars.touched === undefined ? kept.floors.length : Math.min(kept.floors.length, bars.touched)
+    var from = bars.touched === undefined ? kept.length : Math.min(kept.length, bars.touched)
     bars.touched = undefined
-    kept.floors.length = from
-    kept.drawn.length = from
-    kept.envelope.length = from
-    var floor = from > 0 ? kept.floors[from - 1] : FLOOR_START
-    var envelope = from > 0 ? kept.envelope[from - 1] : FLOOR_START
-    var up = 1 - Math.exp(-LEVEL_MS / ATTACK_MS)
-    var down = 1 - Math.exp(-LEVEL_MS / RELEASE_MS)
-    var halves = bars.halves
+    kept.length = from
+    var floor = from > 0 ? kept[from - 1] : FLOOR_START
     for (var k = from; k <= newest; k++) {
-        var drawn = undefined
         if (bars[k] !== undefined) {
             var window = []
-            for (var j = k - FLOOR_BARS + 1; j <= k; j++)
-                window.push(j >= 0 && bars[j] !== undefined ? bars[j] : FLOOR_START)
+            for (var j = Math.max(0, k - FLOOR_BARS + 1); j <= k; j++) {
+                if (bars[j] !== undefined)
+                    window.push(bars[j])
+            }
             window.sort(function(a, b) { return a - b })
             var seen = Math.max(FLOOR_BOTTOM, Math.min(FLOOR_TOP, quantile(window, FLOOR_PERCENTILE)))
             floor = seen > floor ? Math.min(seen, floor + FLOOR_RISE) : seen
-            // The envelope through the bar's levels, in the order they were heard.
-            var pair = halves !== undefined && halves[k] !== undefined ? halves[k] : [bars[k], undefined]
-            var sum = 0, n = 0
-            for (var h = 0; h < 2; h++) {
-                if (pair[h] === undefined)
-                    continue
-                envelope += (pair[h] - envelope) * (pair[h] > envelope ? up : down)
-                sum += envelope
-                n++
-            }
-            drawn = sum / n
         }
-        kept.floors[k] = floor
-        kept.drawn[k] = drawn
-        kept.envelope[k] = envelope
+        kept[k] = floor
     }
     return kept
-}
-
-// The room's floor under the bars up to `newest`: floors[k] is the floor for
-// bars[k], in dBFS (shape()).
-function floors(bars, newest) {
-    return shape(bars, newest).floors
 }
 
 // The newest bar's index for a time since the press. The levels reach the
@@ -184,12 +149,12 @@ function newestBar(elapsedMs, lagMs) {
 // The heights of the `count` bars from the newest back, 0 where there is no
 // level, in the mockup's pixels.
 function heights(bars, newest, count) {
-    var kept = shape(bars, newest)
+    var floor = floors(bars, newest)
     var out = []
     for (var k = 0; k < count; k++) {
         var at = newest - k
-        var level = at >= 0 ? kept.drawn[at] : undefined
-        out.push(level === undefined ? 0 : barHeight(level, kept.floors[at]))
+        var level = at >= 0 ? bars[at] : undefined
+        out.push(level === undefined ? 0 : barHeight(level, floor[at]))
     }
     return out
 }
@@ -206,6 +171,8 @@ function lastBar(bars) {
 // The newest bar whose levels are all in, or -1: one with both its levels, or
 // any bar before the newest that has one. ioslink sends the levels in order,
 // so a bar that has its second level, or a later bar's, has all it will have.
+// The recording screen draws no bar before that: a bar drawn from one of its
+// two levels changed when the other came.
 function lastComplete(bars) {
     var k = lastBar(bars)
     if (k < 0)
