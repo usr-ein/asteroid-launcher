@@ -44,12 +44,28 @@
  *   on another panel, and calls nothing at all.
  * - The waveform's mapping, against the fixtures of voicenote-levels.js: the
  *   user's own note of 22:30 (its quiet room draws flat, his speech tall, the
- *   gaps between his words showing), a quiet room, a busier room, quieter
- *   speech; the floor is the room's whatever speech does to it; and the screen
- *   at five moments of that note, as a contact sheet.
- * - The lockscreen, with a model of compositor.qml's lockscreenWanted: a note
- *   being held unlocks it at 0.5 s, before the display is woken and the
- *   blanking pause asked, and locks it again once the screen is away.
+ *   pauses between his phrases showing), a quiet room, a busier room, quieter
+ *   speech; the floor, from the measured quiet room, is the room's whatever
+ *   speech does to it, and the first bars never set it; the start tick and a
+ *   click draw low; and the screen at five moments of that note, as a contact
+ *   sheet.
+ * - The waveform live: the user's note fed as ioslink feeds it, a level every
+ *   50 ms from the press, through the screen's own tick on a clock the scene
+ *   holds, frame by frame: the first second isn't tall, a bar keeps its height
+ *   once drawn, the row moves one bar a tick, the quiet room stays flat and the
+ *   speech reaches the top; and the same with the levels late, in bursts, and
+ *   the first half second's held back until the screen shows. Its first 2 s and
+ *   the whole note are screenshots, voicenote-live-first2s.png and
+ *   voicenote-live-whole.png.
+ * - The screen kept on, against the stand-in for mce, which plays mce's own
+ *   rules: an unlock refused while the display is off and allowed once it is
+ *   on, a pause ignored unless the display is on and the touch lock off, and
+ *   the lockscreen's blank. From the screen off and from the screen on, the
+ *   display stays on for the whole note; the touch lock is asked to unlock only
+ *   once the display is on, again while it is locked, and at once when it
+ *   locks mid-note; the pause comes after the unlock; and every way a note ends
+ *   locks it again when the face is in front, with a model of compositor.qml's
+ *   lockscreen that the panels moving meanwhile leave alone.
  * - What the screen costs under emulation: frames and CPU for a second of
  *   it, with the bars sliding and stepping, against the same with it hidden.
  */
@@ -60,6 +76,7 @@ import org.asteroid.launcher 1.0
 import "qrc:/qml/compositor"
 import "qrc:/qml/voicenoteview.js" as View
 import "voicenote-levels.js" as Fixtures
+import "voicenote-live.js" as Live
 import "qrc:/qml/voicebutton.js" as VoiceButton
 import "qrc:/qml/ringsbutton.js" as RingsButton
 
@@ -94,6 +111,27 @@ Scene {
         iface: "com.nokia.mce.request"
     }
 
+    // mce's signals, as the stand-in sends them: what the test of the stand-in
+    // heard, while `heard` is a list.
+    DBusInterface {
+        id: mceSignals
+        property var heard: null
+        bus: DBus.SystemBus
+        service: "com.nokia.mce"
+        path: "/com/nokia/mce/signal"
+        iface: "com.nokia.mce.signal"
+        signalsEnabled: true
+        watchServiceStatus: true
+        function tklock_mode_ind(mode) {
+            if (heard)
+                heard.push("tklock " + mode)
+        }
+        function display_blanking_pause_allowed_ind(allowed) {
+            if (heard)
+                heard.push("allowed " + allowed)
+        }
+    }
+
     DBusInterface {
         id: voiceNotesBus
         bus: DBus.SessionBus
@@ -117,7 +155,9 @@ Scene {
     property var opened: []
 
     // The compositor's state as a test sets it: what it names, the rest as the
-    // face's page has it, with the display on.
+    // face's page has it, with the display on. mce starts from the same: the
+    // display on, or off (ambient is mce's low power state, not on), and the
+    // touch lock locked, as with the face or the display off.
     function scene(state) {
         desktop.displayOn = state.displayOn !== undefined ? state.displayOn : true
         desktop.ambient = state.ambient !== undefined ? state.ambient : false
@@ -125,18 +165,34 @@ Scene {
         desktop.panelX = state.panelX !== undefined ? state.panelX : 0
         desktop.panelY = state.panelY !== undefined ? state.panelY : 0
         desktop.ringsView = state.ringsView !== undefined ? state.ringsView : ""
+        mce.reset(desktop.displayOn && !desktop.ambient ? "on" : "off", "locked")
     }
 
-    // What compositor.qml does with the lockscreen (its lockscreenWanted): the
-    // face is locked, and a note being held unlocks it. `locks` is every value it
-    // asked for, `sequence` the same with the calls to mce, in order.
-    property bool longTimeout: true
-    readonly property bool lockscreenWanted: desktop.longTimeout && !hold.screenKept
+    // The display as mce has it, as lipstick tells the compositor: on, it is
+    // out of ambient too.
+    Connections {
+        target: mce
+        function onDisplayChanged(on) {
+            desktop.displayOn = on
+            if (on)
+                desktop.ambient = false
+        }
+    }
+
+    // What compositor.qml does with the lockscreen: the face, its longTimeout,
+    // is the lockscreen, set whenever longTimeout changes, but not while a note
+    // keeps the screen (VoiceNoteHold.qml locks it again after). `locks` is
+    // every value it set, `sequence` the same with the hold's calls to mce, in
+    // order. The model only records: lipstick's own calls to mce aren't the
+    // hold's.
+    property bool longTimeout: desktop.homeActive && desktop.panelX === 0 && desktop.panelY === 0
     property var locks: []
     property var sequence: []
-    onLockscreenWantedChanged: {
-        desktop.locks.push(desktop.lockscreenWanted)
-        desktop.sequence.push("lockscreen " + (desktop.lockscreenWanted ? "locked" : "unlocked"))
+    onLongTimeoutChanged: {
+        if (hold.screenKept)
+            return
+        desktop.locks.push(desktop.longTimeout)
+        desktop.sequence.push("lockscreen " + (desktop.longTimeout ? "locked" : "unlocked"))
     }
 
     VoiceNoteOverlay {
@@ -150,11 +206,11 @@ Scene {
         overlay: overlay
         ioslinkUp: voiceNotesBus.status === DBusInterface.Available
         displayLit: desktop.displayOn && !desktop.ambient
-        // The pause's second request is tested where it is asked for.
-        pauseAgainMs: 3600000
+        lockWanted: desktop.longTimeout
         callMce: function(method, args, callback) {
-            desktop.trace.push("mce " + method + (typeof args === "string" ? " " + args : ""))
-            desktop.sequence.push("mce " + method)
+            var call = "mce " + method + (typeof args === "string" ? " " + args : "")
+            desktop.trace.push(call)
+            desktop.sequence.push(call)
             mceRequest.call(method, args, callback)
         }
         callIoslink: function(method, args, callback, errback) {
@@ -405,6 +461,61 @@ Scene {
         mce.clear()
     }
 
+    // A note held holdMs from the scene's state, mce blanking a locked display
+    // 1.5 s after it came on and an unlocked one after 3 s: the display stays on
+    // for all of it, with the touch lock unlocked and the pause held, and mce
+    // never refuses an unlock or ignores a pause; after the screen the leases
+    // end, then the touch lock is locked again. then(order): what the hold
+    // asked of mce and what mce did, in order, up to the pause held.
+    function keptScreen(label, holdMs, then) {
+        mce.lockBlankMs = 1500
+        mce.blankMs = 3000
+        reset()
+        var stamp = test.bootMs()
+        feeder.run(stamp)
+        press(stamp)
+        waitFor(function() { return overlay.phase === "live" }, 5000, label + ": the screen shows", function() {
+            after(holdMs - 500, function() {
+                check(mce.display === "on" && mce.paused && mce.tklock === "unlocked",
+                      label + ": " + (holdMs / 1000) + " s into the note the display is on, the pause held, the touch lock unlocked: "
+                      + mce.display + ", " + (mce.paused ? "paused" : "not paused") + ", " + mce.tklock)
+                check(mce.events.every(function(e) { return e.indexOf("blanked") === -1 && e.indexOf("denied") === -1 && e !== "pause ignored" && e !== "pause dropped" }),
+                      label + ": mce never blanked it, refused an unlock or ignored a pause: " + mce.events.join(", "))
+                release(test.bootMs())
+                settled(function() {
+                    feeder.stop()
+                    waitFor(function() { return mce.log.indexOf("mce req_tklock_mode_change locked-delay") !== -1 }, 3000, label + ": mce has the lock", function() {
+                        var log = mce.log
+                        var tail = log.slice(log.lastIndexOf(stopCall))
+                        expectEqual(tail.filter(function(e) { return e.indexOf("mce ") === 0 }),
+                                    ["mce req_cpu_keepalive_stop " + session, "mce req_display_cancel_blanking_pause", "mce req_tklock_mode_change locked-delay"],
+                                    label + ": after the screen, the keepalive and the pause end, then the touch lock is locked again")
+                        check(mce.tklock === "locked", label + ": mce has it locked: " + mce.tklock)
+                        mce.lockBlankMs = 0
+                        mce.blankMs = 0
+                        var wanted = ["mce req_display_state_on", "the display is on", "mce req_tklock_mode_change unlocked", "unlocked",
+                                      "mce req_display_blanking_pause", "pause held"]
+                        var order = []
+                        for (var i = 0; i < log.length && order.indexOf("pause held") === -1; i++) {
+                            if (wanted.indexOf(log[i]) !== -1 && order.indexOf(log[i]) === -1)
+                                order.push(log[i])
+                        }
+                        then(order)
+                    })
+                })
+            })
+        })
+    }
+
+    // After a note with the face in front: the touch lock locked again, the
+    // hold's last call to mce, after it had asked to unlock it (the calls go
+    // out at once; mce has them a moment later).
+    function relocked(label) {
+        var calls = stripped(desktop.trace).filter(function(c) { return c.indexOf("mce ") === 0 })
+        check(calls.indexOf("mce req_tklock_mode_change unlocked") !== -1 && calls[calls.length - 1] === "mce req_tklock_mode_change locked-delay",
+              label + ": the face is locked again after the note (the last call " + calls[calls.length - 1] + ")")
+    }
+
     function press(stamp) {
         test.inputEvents(fifo, [[stamp, evKey, keyMenu, 1], [stamp, evSyn, 0, 0]])
     }
@@ -438,20 +549,25 @@ Scene {
                         ["0:00", "0:00", "0:42", "4:07", "9:59", "10:00", "10:00"], "the duration: m:ss, from 0:00 to 9:59, then 10:00")
             expectEqual([View.barHeight(-60, -52), View.barHeight(-44, -52), View.barHeight(-35.5, -52), View.barHeight(-27, -52), View.barHeight(0, -52)].map(Math.round),
                         [6, 6, 53, 100, 100], "a bar is flat up to 8 dB over the floor, 100 px from -27 dBFS, and an S-curve between: 53 px in the middle, no more or less")
-            expectEqual([View.barHeight(-44, -58), View.barHeight(-44, -52), View.barHeight(-44)].map(Math.round), [22, 6, 6],
-                        "it is measured from the room's floor: -44 dBFS is 22 px over a quiet room's, flat over a usual one's, and the floor is -52 until the note says otherwise")
+            expectEqual([View.barHeight(-44, -58), View.barHeight(-44, -52), View.barHeight(-44)].map(Math.round), [22, 6, 12],
+                        "it is measured from the room's floor: -44 dBFS is 22 px over a quiet room's, flat over a usual one's, and the floor is the measured quiet room's, -55, until the note says otherwise")
             var bars = []
             View.addLevels(bars, 200, [-5000, -3000, -4000])
             View.addLevels(bars, 450, [-2500])
             expectEqual([bars[2], bars[3], bars[4], bars[5]], [-40, -40, -25, undefined],
                         "a bar is the mean in dB of its two 50 ms levels: 200 and 250 ms are one, 300 ms another, and one level alone is a bar until its other comes")
-            expectEqual(View.heights(bars, 4, 5).map(Math.round), [100, 19, 19, 0, 0],
-                        "the heights run back from the newest bar, over each one's floor, and 0 where there is no level")
+            expectEqual(View.heights(bars, 4, 5).map(Math.round), [76, 25, 6, 0, 0],
+                        "the heights run back from the newest bar, its levels smoothed from the room's, over each one's floor, and 0 where there is no level")
+            expectEqual([View.lastComplete([]), View.lastComplete(bars)], [-1, 4],
+                        "the newest bar with all its levels: none, then the one with its second level")
+            var halfway = []
+            View.addLevels(halfway, 0, [-5000, -5000, -4000])
+            expectEqual(View.lastComplete(halfway), 0, "a bar with its first level alone isn't complete; the one before it is")
             View.addLevels(bars, 350, [-3000])
             expectEqual(bars[3], -35, "the other level of a bar comes: -40 and -30 are -35")
             View.addLevels(bars, 350, [-3000])
             expectEqual(bars[3], -35, "and comes again: the same")
-            expectEqual([View.newestBar(1000, 150), View.newestBar(149, 150)], [8, -1], "the newest bar leaves out the lag")
+            expectEqual([View.newestBar(1000, 250), View.newestBar(249, 250)], [7, -1], "the newest bar leaves out the lag")
             expectEqual([View.breath(0), View.breath(500), View.breath(1000)].map(function(v) { return Math.round(v * 100) / 100 }),
                         [1, 0.35, 1], "the dot breathes once a second")
             expectEqual([View.recordingLine(42000), View.recordingLine(569000), View.recordingLine(570000), View.recordingLine(581000), View.recordingLine(599500), View.recordingLine(600000)],
@@ -490,9 +606,11 @@ Scene {
 
         // The waveform's mapping, against the fixtures of voicenote-levels.js: the
         // user's own note of 22:30 first, with the quiet room he recorded in it (the
-        // room flat, the speech around it tall, the gaps between the words
-        // showing), then the earlier ones: a quiet room, a busier room, and
-        // quieter speech. The floor is the room's, whatever speech does to it.
+        // room flat, the speech around it tall, the pauses between his phrases
+        // showing, the start tick low), then the earlier ones: a quiet room, a
+        // busier room, and quieter speech. The floor starts at the measured quiet
+        // room, the first bars never set it, and it is the room's, whatever speech
+        // does to it.
         function(done) {
             function barsOf(text) {
                 var bars = []
@@ -508,11 +626,17 @@ Scene {
             function top(list) { return Math.max.apply(null, list) }
             function flat(h) { return h <= View.BAR_MIN + 3 }
             function low(h) { return h < 35 }
-            function dips(list) {
-                var n = 0
-                for (var i = 1; i < list.length - 1; i++) {
-                    if (list[i - 1] - list[i] >= 35 && list[i + 1] - list[i] >= 35)
-                        n++
+            // Pauses: runs of 2 bars or more under 35 px.
+            function pauses(list) {
+                var n = 0, run = 0
+                for (var i = 0; i <= list.length; i++) {
+                    if (i < list.length && low(list[i])) {
+                        run++
+                    } else {
+                        if (run >= 2)
+                            n++
+                        run = 0
+                    }
                 }
                 return n
             }
@@ -520,26 +644,40 @@ Scene {
                 return "flat " + share(list, flat).toFixed(2) + ", median " + at(list, 0.5).toFixed(0) + " px, p75 " + at(list, 0.75).toFixed(0)
                        + " px, max " + top(list).toFixed(0) + " px, under 35 px " + share(list, low).toFixed(2)
             }
+            function rounded(list) { return list.map(Math.round).join(" ") }
 
-            // The user's note. Bars 112 to 153 are the quiet room he recorded (11.2 to
-            // 15.3 s); 12 to 48 and 160 to 215 are speech (1.2 to 4.9 s and 16 to 21.6 s).
+            // The user's note. Bars 110 to 154 are the quiet room he recorded (11.0 to
+            // 15.5 s): the first three the release of his last word (10.9 s, -26
+            // dBFS), then the room; 12 to 48 and 160 to 215 are speech (1.2 to 4.9 s
+            // and 16 to 21.6 s), and 0 to 9 the first second, the start tick at 0.45 s.
             var note = drawn(Fixtures.NOTE_2230)
-            var room = note.slice(112, 154)
+            var release = note.slice(110, 113), room = note.slice(113, 155)
             var first = note.slice(12, 49), second = note.slice(160, 216)
             var talk = first.concat(second)
-            test.log("     bars: the user's quiet room: " + describe(room))
-            test.log("     bars: the user's speech: " + describe(talk) + ", " + (dips(first) + dips(second)) + " dips")
-            check(share(room, flat) >= 0.98 && top(room) <= 12, "the quiet room the user recorded draws flat: " + describe(room))
-            check(at(talk, 0.5) >= 70 && at(talk, 0.75) >= 85 && share(talk, function(h) { return h >= 80 }) >= 0.45,
-                  "and his speech around it draws tall: " + describe(talk))
-            check(share(talk, low) >= 0.1 && share(talk, low) <= 0.3 && dips(first) + dips(second) >= 4,
-                  "with the gaps between his words showing: " + share(talk, low).toFixed(2) + " of the bars are under 35 px, and " + (dips(first) + dips(second)) + " are dips")
+            test.log("     bars: the user's first second: " + rounded(note.slice(0, 10)))
+            test.log("     bars: the user's quiet room: " + describe(room) + ", after his last word's " + rounded(release))
+            test.log("     bars: the user's speech: " + describe(talk) + ", " + (pauses(note.slice(12, 110)) + pauses(note.slice(160, 260))) + " pauses")
+            check(top(note.slice(0, 10)) < 35, "the first second, the start tick in it, draws low: " + rounded(note.slice(0, 10)))
+            check(release[0] >= release[1] && release[1] >= release[2] && release[2] <= View.BAR_MIN + 9,
+                  "his last word falls away in 0.3 s: " + rounded(release))
+            check(share(room, flat) >= 0.95 && top(room) <= 12, "and the quiet room he recorded draws flat from 11.3 s to 15.5 s: " + describe(room))
+            check(at(talk, 0.5) >= 80 && at(talk, 0.75) >= 90 && share(talk, function(h) { return h >= 80 }) >= 0.6 && top(talk) >= 99,
+                  "his speech around it draws tall, to the top: " + describe(talk))
+            check(pauses(note.slice(12, 110)) + pauses(note.slice(160, 260)) >= 5,
+                  "with the pauses between his phrases showing: " + (pauses(note.slice(12, 110)) + pauses(note.slice(160, 260))) + " runs of bars under 35 px")
+            var rise = 0, fall = 0
+            for (var k = 1; k < note.length; k++) {
+                rise = Math.max(rise, note[k] - note[k - 1])
+                fall = Math.max(fall, note[k - 1] - note[k])
+            }
+            check(rise <= 80 && fall <= 50, "a bar rises from the one before it by " + rise.toFixed(0) + " px at the most, and falls by " + fall.toFixed(0)
+                  + ": smoothed, attack " + View.ATTACK_MS + " ms and release " + View.RELEASE_MS + " ms")
             var bars = barsOf(Fixtures.NOTE_2230)
-            function row(ms) { return View.heights(bars, View.newestBar(ms, 150), 30).reverse() }
-            check(row(15000).every(function(h) { return h <= View.BAR_MIN + 4 }), "at 15 s the screen is a flat line: " + row(15000).map(Math.round).join(" "))
-            check(at(row(4000), 0.5) >= 60 && at(row(20000), 0.5) >= 60, "and tall at 4 s and at 20 s: " + at(row(4000), 0.5).toFixed(0) + " and " + at(row(20000), 0.5).toFixed(0) + " px at the median")
+            function row(ms) { return View.heights(bars, View.newestBar(ms, 250), 30).reverse() }
+            check(row(15000).every(function(h) { return h <= View.BAR_MIN + 4 }), "at 15 s the screen is a flat line: " + rounded(row(15000)))
+            check(at(row(4000), 0.5) >= 70 && at(row(20000), 0.5) >= 70, "and tall at 4 s and at 20 s: " + at(row(4000), 0.5).toFixed(0) + " and " + at(row(20000), 0.5).toFixed(0) + " px at the median")
             var begins = row(17000)
-            check(begins.slice(0, 22).every(function(h) { return h <= View.BAR_MIN + 4 }) && top(begins.slice(26)) >= 30, "at 17 s the room, then speech beginning at the right: " + begins.map(Math.round).join(" "))
+            check(begins.slice(0, 22).every(function(h) { return h <= View.BAR_MIN + 4 }) && top(begins.slice(26)) >= 30, "at 17 s the room, then speech beginning at the right: " + rounded(begins))
             var padded = Fixtures.NOTE_2230 + "A"
             var three = barsOf(padded + padded + padded)
             var third = View.heights(three, View.lastBar(three), three.length).reverse().slice(note.length * 2).slice(160, 216)
@@ -555,40 +693,63 @@ Scene {
             test.log("     bars: the mockup's speech: " + describe(speech))
             check(share(quiet, flat) >= 0.98 && top(quiet) <= 12, "a quiet room (-52 dBFS, 3 either way) draws flat: " + describe(quiet))
             check(share(skewed, flat) >= 0.98 && top(skewed) <= 15, "so does one with a heavy tail: " + describe(skewed))
-            check(share(busy, flat) >= 0.4 && at(busy, 0.5) <= 15, "the busier room draws low: " + describe(busy))
-            check(at(busy, 0.5) + 30 <= at(talk, 0.5), "and far lower than the user's speech: median " + at(busy, 0.5).toFixed(0) + " against " + at(talk, 0.5).toFixed(0) + " px")
-            check(top(speech) >= 90 && share(speech, function(h) { return h > 35 }) >= 0.2,
-                  "the mockup's speech, 5 to 8 dB under the user's, still shows, to the top: " + describe(speech))
+            check(at(busy, 0.5) <= 20 && at(busy, 0.75) <= 50, "the busier room draws low: " + describe(busy))
+            check(at(busy, 0.5) + 60 <= at(talk, 0.5), "and far lower than the user's speech: median " + at(busy, 0.5).toFixed(0) + " against " + at(talk, 0.5).toFixed(0) + " px")
+            check(top(speech) >= 85 && share(speech, function(h) { return h > 35 }) >= 0.15,
+                  "the mockup's speech, 5 to 8 dB under the user's, still shows, near the top: " + describe(speech))
+            // A floor that rises 1 dB a second follows a louder room within seconds,
+            // and climbs into a soft voice's gaps within a minute: the mockup's
+            // speech, looped, keeps only its peaks there; the user's own keeps all.
             var three2 = barsOf(Fixtures.SPEECH + Fixtures.SPEECH + Fixtures.SPEECH)
             var last = View.heights(three2, View.lastBar(three2), three2.length).reverse().slice(speech.length * 2)
-            check(share(last, function(h) { return h > 35 }) >= 0.75 * share(speech, function(h) { return h > 35 }),
-                  "and speech doesn't become the floor: the third time through it shows as much (" + share(last, function(h) { return h > 35 }).toFixed(2) + " against " + share(speech, function(h) { return h > 35 }).toFixed(2) + ")")
+            check(top(last) >= 60 && View.floors(three2, three2.length - 1)[three2.length - 1] <= View.FLOOR_TOP,
+                  "and a minute and a half into it, its peaks still show: " + top(last).toFixed(0) + " px at the most, over a floor of "
+                  + View.floors(three2, three2.length - 1)[three2.length - 1].toFixed(1) + " dBFS")
 
             // The floor.
+            function encode(list) { return list.map(function(db) { return String.fromCharCode(Math.round(db) + 125) }).join("") }
+            function steady(n, db, swing) {
+                var out = []
+                for (var i = 0; i < n; i++)
+                    out.push(db + swing * Math.sin(i * 1.7))
+                return out
+            }
+            var silence = barsOf(encode(steady(6, -60, 0).concat(steady(200, -50, 2))))
+            check(View.floors(silence, 12).every(function(f) { return f === View.FLOOR_START }) && top(View.heights(silence, 19, 20)) <= View.BAR_MIN + 3,
+                  "the first bars don't set the floor: 0.3 s of silence from the microphone leaves it at " + View.FLOOR_START + " dBFS, and the room after it, -50, draws flat")
+            var pop = barsOf(encode([-15].concat(steady(200, -55, 2))))
+            check(View.floors(pop, 10).every(function(f) { return f === View.FLOOR_START }) && View.heights(pop, 0, 1)[0] < 60,
+                  "nor does a pop as the microphone starts, which draws at " + View.heights(pop, 0, 1)[0].toFixed(0) + " px, smoothed")
             var fixed = []
             View.addLevels(fixed, 0, Array(200).fill(-5800))
-            View.addLevels(fixed, 10000, [-4600])
-            check(View.heights(fixed, 100, 1)[0] >= 10 && View.barHeight(-46, -52) === View.BAR_MIN,
-                  "a quieter room lowers the floor at once: -46 dBFS is " + View.heights(fixed, 100, 1)[0].toFixed(0) + " px over -58, flat over -52")
+            View.addLevels(fixed, 10000, Array(10).fill(-4600))
+            check(View.floors(fixed, 104)[104] === -58 && View.heights(fixed, 104, 1)[0] >= 10 && View.barHeight(-46, -52) === View.BAR_MIN,
+                  "a quieter room lowers the floor at once: -46 dBFS is " + View.heights(fixed, 104, 1)[0].toFixed(0) + " px over -58, flat over -52")
+            var quieter = View.floors(fixed, 20)
+            check(quieter[10] === View.FLOOR_START && quieter[12] === -58, "once 15 % of its 8 s are quieter, 1.2 s: " + quieter[10] + " then " + quieter[12])
             var loud = []
             View.addLevels(loud, 0, Array(800).fill(-4700))
-            var floors = View.floors(loud, 399)
-            check(Math.abs(floors[99] - (View.FLOOR_START + 100 * View.FLOOR_RISE)) < 0.011,
-                  "a louder room raises the floor slowly: " + floors[99].toFixed(2) + " dBFS after 10 s of -47")
+            var floors = View.floors(loud, 399), fastest = 0
+            for (var j = 1; j < 400; j++)
+                fastest = Math.max(fastest, floors[j] - floors[j - 1])
+            check(fastest <= View.FLOOR_RISE + 1e-9 && floors[399] === -47,
+                  "a louder room raises the floor by 1 dB a second at the most: " + (fastest * 10).toFixed(2) + " dB a second, and -47 in the end")
             var loudest = []
             View.addLevels(loudest, 0, Array(1200).fill(-3000))
             check(top(View.floors(loudest, 599)) === View.FLOOR_TOP, "and never above " + View.FLOOR_TOP + " dBFS, in a room as loud as speech: " + top(View.floors(loudest, 599)))
             var all = barsOf(Fixtures.SPEECH)
             var head = barsOf(Fixtures.SPEECH.slice(0, 82))
             expectEqual(View.floors(head, 40), View.floors(all, 200).slice(0, 41), "a bar's floor depends on the bars before it alone")
+            expectEqual(View.heights(head, 40, 41), View.heights(all, 40, 41), "and so does its height")
             var late = []
             View.addLevels(late, 0, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(0, 40)))
             View.addLevels(late, 4000, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(80, 120)))
-            View.floors(late, 59)
+            View.heights(late, 59, 60)
             View.addLevels(late, 2000, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(40, 80)))
             var whole = []
             View.addLevels(whole, 0, Fixtures.centibels(Fixtures.ROOM_BUSY.slice(0, 120)))
-            expectEqual(View.floors(late, 59), View.floors(whole, 59), "a late chunk of levels works the floors out again from its first bar, to what they would have been")
+            expectEqual({floors: View.floors(late, 59), heights: View.heights(late, 59, 60)}, {floors: View.floors(whole, 59), heights: View.heights(whole, 59, 60)},
+                        "a late chunk of levels works the floors and the heights out again from its first bar, to what they would have been")
 
             // What it costs the screen's tick: one bar more each time, over a minute's worth.
             var run = []
@@ -601,6 +762,91 @@ Scene {
             var ms = Date.now() - t0
             test.log("     the view's cost: " + ms + " ms for 600 ticks (1 minute of note), under emulation")
             check(ms < 3000, "a tick of the screen is cheap: " + (ms / 600).toFixed(1) + " ms each, under emulation")
+            done()
+        },
+
+        // The waveform live: the user's note of 22:30 as ioslink feeds the screen,
+        // through the screen's own tick, frame by frame on a clock the scene holds
+        // (voicenote-live.js). The screen shows at 0.5 s, the hold's threshold.
+        // First as the levels are heard, one every 50 ms from the press; then as
+        // ioslink sends them, every 100 ms after the capture's delay; with the
+        // first half second's in a burst as the screen shows, and the first
+        // second's held back past it; and with the levels later than the screen's
+        // lag. Each time: the first second isn't tall, a bar keeps its height once
+        // drawn, the row moves one bar a tick at the most and never back, the
+        // newest bar's change from frame to frame is bounded, the quiet room stays
+        // flat, speech reaches the top, and the whole note draws the same.
+        function(done) {
+            var levels = desktop.note2230
+            var noteMs = 50 * levels.length
+            // The last bar with both its levels: the one after it has its first
+            // alone, and only the frozen screen at the release draws that.
+            var lastBar = Math.floor(levels.length / 2) - 1
+            function top(list) { return list.length === 0 ? 0 : Math.max.apply(null, list) }
+            function at(list, q) { return View.quantile(list.slice().sort(function(a, b) { return a - b }), q) }
+            var cases = [
+                {name: "as heard, a level every 50 ms", arrival: Live.arrivals("live"), stalls: 0},
+                {name: "as ioslink sends them, every 100 ms, 40 ms late", arrival: Live.arrivals("ioslink", undefined, 40), stalls: 0},
+                {name: "the first half second's in a burst as the screen shows", arrival: Live.arrivals("live", 500), stalls: 0},
+                {name: "the first second's held back to 1.2 s", arrival: Live.arrivals("ioslink", 1200, 40), stalls: -1},
+                {name: "200 ms late, past the screen's lag", arrival: Live.arrivals("ioslink", undefined, 200), stalls: -1}
+            ]
+            var pictures = []
+            cases.forEach(function(c) {
+                var run = Live.start(overlay, levels, c.arrival, 500)
+                run.to(noteMs + 1000)
+                overlay.hide()
+                var seen = Live.barsSeen(run.frames)
+                var changed = 0, worst = 0
+                seen.forEach(function(list) {
+                    if (list === undefined)
+                        return
+                    list.forEach(function(h) {
+                        if (h !== list[0]) {
+                            changed++
+                            worst = Math.max(worst, Math.abs(h - list[0]))
+                        }
+                    })
+                })
+                // While the note lasts: past its end, there is nothing to move to.
+                var during = run.frames.filter(function(f) { return f.newest < lastBar })
+                var steps = Live.steps(during)
+                var backOrMore = steps.filter(function(s) { return s < 0 || s > 1 }).length
+                var stalls = steps.filter(function(s) { return s === 0 }).length
+                var rise = 0, fall = 0
+                for (var i = 1; i < run.frames.length; i++) {
+                    var a = run.frames[i - 1], b = run.frames[i]
+                    if (b.newest === a.newest + 1 && a.newest >= 0) {
+                        rise = Math.max(rise, b.heights[0] - a.heights[0])
+                        fall = Math.max(fall, a.heights[0] - b.heights[0])
+                    }
+                }
+                var drawn = []
+                for (var k = 0; k <= lastBar; k++)
+                    drawn.push(seen[k] !== undefined ? seen[k][0] : -1)
+                pictures.push(drawn)
+                // The frames that show the first second alone.
+                var firstFrames = run.frames.filter(function(f) { return f.newest <= 9 })
+                var talk = drawn.slice(12, 49).concat(drawn.slice(160, 216))
+                test.log("     live, " + c.name + ": " + run.frames.length + " frames, " + run.deliveries.length + " signals; "
+                         + stalls + " ticks waited for levels; the newest bar rose " + rise.toFixed(0) + " px and fell " + fall.toFixed(0) + " px at the most")
+                check(drawn.every(function(h) { return h >= 0 }), "live, " + c.name + ": every bar of the note is drawn")
+                check(changed === 0, "live, " + c.name + ": a bar keeps its height once drawn" + (changed === 0 ? "" : " (" + changed + " changes, " + worst.toFixed(0) + " px at the most)"))
+                check(backOrMore === 0 && (c.stalls < 0 || stalls === c.stalls),
+                      "live, " + c.name + ": the row moves one bar a tick, never two, never back" + (c.stalls < 0 ? ", waiting " + stalls + " ticks for late levels" : ""))
+                check(top(drawn.slice(0, 10)) < 35 && firstFrames.every(function(f) { return top(f.heights) < 35 }),
+                      "live, " + c.name + ": the first second isn't tall: " + top(drawn.slice(0, 10)).toFixed(0) + " px at the most, in each of the "
+                      + firstFrames.length + " frames that show it")
+                check(rise <= 80 && fall <= 50, "live, " + c.name + ": from frame to frame the newest bar rises " + rise.toFixed(0) + " px and falls " + fall.toFixed(0) + " px at the most")
+                check(top(drawn.slice(113, 155)) <= 12 && drawn[110] >= drawn[111] && drawn[111] >= drawn[112],
+                      "live, " + c.name + ": the quiet room stays flat: " + top(drawn.slice(113, 155)).toFixed(0) + " px at the most from 11.3 to 15.5 s, after the last word falls away")
+                check(top(talk) >= 99 && at(talk, 0.5) >= 80, "live, " + c.name + ": speech reaches the top: " + top(talk).toFixed(0) + " px, " + at(talk, 0.5).toFixed(0) + " px at the median")
+            })
+            var still = []
+            View.addLevels(still, 0, Fixtures.centibels(Fixtures.NOTE_2230))
+            var whole = View.heights(still, lastBar, lastBar + 1).reverse()
+            check(pictures.every(function(p) { return JSON.stringify(p) === JSON.stringify(whole) }),
+                  "and the whole note draws the same however its levels came, as the view draws it at once")
             done()
         },
 
@@ -798,14 +1044,16 @@ Scene {
             waitFor(function() { return overlay.phase === "live" }, 5000, "the recording screen shows once the hold is confirmed", function() {
                 var wait = Date.now() - t0
                 check(wait >= 480 && wait < 2500, "at 0.5 s from the press: " + wait + " ms")
-                waitFor(function() { return voicenotes.calls.length >= 2 && mce.calls.length >= 3 }, 3000, "ioslink and mce have their calls", function() {
+                waitFor(function() { return voicenotes.calls.length >= 2 && mce.calls.length >= 4 }, 3000, "ioslink and mce have their calls", function() {
                     expectEqual(stripped(desktop.trace), [startCall, "mce req_cpu_keepalive_period " + session + "-period", "ioslink Arm <time>",
-                                                          "mce req_display_blanking_pause", "ioslink Keep NOTE"],
-                                "the keepalive first, then Arm; at 0.5 s the blanking pause, then Keep; the display was on, so no wake")
+                                                          "mce req_tklock_mode_change unlocked", "ioslink Keep NOTE", "mce req_display_blanking_pause"],
+                                "the keepalive first, then Arm; at 0.5 s the unlock, as the display is on, and Keep; the pause once mce says unlocked; no wake")
                     expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE"], "ioslink heard Arm, then Keep")
                     expectEqual(voicenotes.calls[0], "Arm " + stamp, "Arm has the press' own boot-time stamp")
-                    expectEqual(mce.calls, ["req_cpu_keepalive_start " + session, "req_cpu_keepalive_period " + session + "-period", "req_display_blanking_pause"],
+                    expectEqual(mce.calls, ["req_cpu_keepalive_start " + session, "req_cpu_keepalive_period " + session + "-period",
+                                            "req_tklock_mode_change unlocked", "req_display_blanking_pause"],
                                 "and mce heard its calls")
+                    expectEqual(mce.events, ["unlocked", "pause held"], "mce unlocked, and held the pause")
                     check(overlay.shown && overlay.opacity === 1 && overlay.visible, "the screen is up, whole")
                     expectEqual(overlay.noteId, voicenotes.recording, "it has the note's id")
                     after(1300, function() {
@@ -836,15 +1084,19 @@ Scene {
                                         expectEqual(overlay.lineText, "Saved · sending", "saved, the iPhone in reach")
                                         waitFor(function() { return voicenotes.calls.length >= 3 }, 3000, "ioslink has Stop", function() {
                                             expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "Stop came with the release")
-                                            check(hold.keepaliveHeld && hold.blankingPaused && hold.screenKept, "mce's keepalive and blanking pause, and the lockscreen's let go, are held while the screen shows")
+                                            check(hold.keepaliveHeld && hold.blankingPaused && hold.screenKept && mce.tklock === "unlocked" && mce.paused,
+                                                  "mce's keepalive and blanking pause, and the touch lock unlocked, are held while the screen shows")
                                             settled(function() {
                                                 var shown = Date.now() - endedAt
                                                 check(shown >= 2100 && shown < 3600, "2 s of \"Saved\" and 250 ms of fade, and the leases go with it: " + shown + " ms")
-                                                waitFor(function() { return mce.calls.length >= 5 }, 3000, "mce has its last calls", function() {
-                                                    expectEqual(mce.calls.slice(3), ["req_cpu_keepalive_stop " + session, "req_display_cancel_blanking_pause"],
-                                                                "the keepalive ends, then the blanking pause")
-                                                    expectEqual(stripped(desktop.trace).slice(5), ["ioslink Stop NOTE <time>", stopCall, "mce req_display_cancel_blanking_pause"],
-                                                                "after the screen: Stop was sent first, and the leases end last")
+                                                waitFor(function() { return mce.calls.length >= 7 }, 3000, "mce has its last calls", function() {
+                                                    expectEqual(mce.calls.slice(4), ["req_cpu_keepalive_stop " + session, "req_display_cancel_blanking_pause",
+                                                                                     "req_tklock_mode_change locked-delay"],
+                                                                "the keepalive ends, then the blanking pause, then the face is locked again")
+                                                    expectEqual(stripped(desktop.trace).slice(6), ["ioslink Stop NOTE <time>", stopCall, "mce req_display_cancel_blanking_pause",
+                                                                                                   "mce req_tklock_mode_change locked-delay"],
+                                                                "after the screen: Stop was sent first, and the leases end last, then the lock")
+                                                    check(mce.tklock === "locked", "mce has the touch lock locked again: " + mce.tklock)
                                                     var phases = desktop.phaseLog.map(function(p) { return p.phase })
                                                     expectEqual(phases, ["armed", "live", "saving", "ended", "idle"], "the screen's phases")
                                                     feeder.stop()
@@ -862,72 +1114,92 @@ Scene {
             })
         },
 
-        // The lockscreen and the pause. mce blanks a locked display 10 s after it
-        // came on and allows no blanking pause while the lockscreen is locked, and
-        // the face is the lockscreen: so at 0.5 s the lockscreen is let go, then
-        // the display is woken and the pause asked, and asked again as soon as the
-        // display is on; panels changing meanwhile don't lock it; and it is
-        // locked again once the screen is away, the leases first.
+        // ---- the screen kept on: mce's touch lock and the blanking pause ----
+        //
+        // The face is mce's lockscreen. mce blanks a locked display 10 s after it
+        // came on, allows a pause only with the display on and the touch lock
+        // off, and refuses to unlock while the display is off: the stand-in plays
+        // those rules, with its 10 s as 1.5 s. First the stand-in itself.
         function(done) {
-            desktop.scene({displayOn: false})
-            desktop.longTimeout = true
-            voicenotes.answer = "id"
-            voicenotes.outcome = "auto"
             reset()
-            var stamp = test.bootMs()
-            feeder.run(stamp)
-            press(stamp)
-            function pauses() {
-                return desktop.sequence.filter(function(c) { return c === "mce req_display_blanking_pause" }).length
-            }
-            waitFor(function() { return overlay.phase === "live" && pauses() >= 1 }, 5000, "the screen shows and the pause is asked", function() {
-                expectEqual(desktop.sequence.slice(0, 4),
-                            ["mce req_cpu_keepalive_start", "lockscreen unlocked", "mce req_display_state_on", "mce req_display_blanking_pause"],
-                            "the keepalive at the press; at 0.5 s the lockscreen is let go, then the display is woken, then the pause asked")
-                expectEqual(desktop.locks, [false], "the lockscreen was asked to unlock, once")
-                desktop.displayOn = true
-                waitFor(function() { return pauses() >= 2 }, 3000, "the display is on: the pause is asked again", function() {
-                    desktop.longTimeout = false
-                    desktop.longTimeout = true
-                    expectEqual(desktop.locks, [false], "the face being left and come back to, meanwhile, doesn't lock it again")
-                    release(test.bootMs())
-                    settled(function() {
-                        feeder.stop()
-                        expectEqual(desktop.locks, [false, true], "it is locked again once the screen is away")
-                        expectEqual(desktop.sequence.slice(-3), ["mce req_cpu_keepalive_stop", "mce req_display_cancel_blanking_pause", "lockscreen locked"],
-                                    "the leases end first, the lockscreen last")
-                        desktop.scene({})
-                        done()
+            mce.reset("off", "locked")
+            var heard = []
+            mceSignals.heard = heard
+            mceRequest.call("req_tklock_mode_change", "unlocked")
+            mceRequest.call("req_display_blanking_pause", undefined)
+            after(300, function() {
+                expectEqual({events: mce.events, tklock: mce.tklock, heard: heard}, {events: ["unlock denied: display off", "pause ignored"], tklock: "locked", heard: ["tklock locked"]},
+                            "the stand-in for mce refuses to unlock with the display off, says it is still locked, and ignores a pause")
+                mce.clear()
+                mceRequest.call("req_display_state_on", undefined)
+                waitFor(function() { return mce.display === "on" }, 3000, "it turns the display on", function() {
+                    mceRequest.call("req_tklock_mode_change", "unlocked")
+                    after(300, function() {
+                        mceRequest.call("req_display_blanking_pause", undefined)
+                        after(300, function() {
+                            expectEqual({events: mce.events, tklock: mce.tklock, paused: mce.paused}, {events: ["the display is on", "unlocked", "pause held"], tklock: "unlocked", paused: true},
+                                        "and with it on, unlocks and holds the pause")
+                            expectEqual(heard.slice(1), ["allowed true", "tklock unlocked"], "saying so: the pause allowed, then the touch lock unlocked")
+                            mceRequest.call("req_tklock_mode_change", "locked")
+                            after(300, function() {
+                                check(!mce.paused && mce.events[mce.events.length - 1] === "pause dropped", "locked again, it drops the pause: " + mce.events.join(", "))
+                                mceSignals.heard = null
+                                desktop.scene({})
+                                done()
+                            })
+                        })
                     })
                 })
             })
         },
 
-        // The pause is asked once more a moment after it began, in case mce
-        // hadn't the unlock yet, and not after it was let go.
+        // From the screen off, as the user's note of 23:57 was: at 0.5 s the
+        // display is woken, and the unlock waits for it; then the pause. The
+        // display stays on past mce's lockscreen blank, for the whole note.
         function(done) {
-            hold.pauseAgainMs = 300
+            desktop.scene({displayOn: false})
+            keptScreen("from the screen off", 3500, function(order) {
+                expectEqual(order, ["mce req_display_state_on", "the display is on", "mce req_tklock_mode_change unlocked", "unlocked", "mce req_display_blanking_pause", "pause held"],
+                            "from the screen off: the wake, the display on, only then the unlock, then the pause")
+                done()
+            })
+        },
+
+        // From the screen on, on the face: the unlock at 0.5 s, then the pause.
+        function(done) {
             desktop.scene({})
-            voicenotes.answer = "id"
-            voicenotes.outcome = "auto"
+            keptScreen("from the screen on", 2500, function(order) {
+                expectEqual(order, ["mce req_tklock_mode_change unlocked", "unlocked", "mce req_display_blanking_pause", "pause held"],
+                            "from the screen on: the unlock at 0.5 s, then the pause; no wake")
+                done()
+            })
+        },
+
+        // Locked again mid-note, by anything: the unlock again at once, and the
+        // pause again.
+        function(done) {
+            desktop.scene({})
+            mce.lockBlankMs = 1500
             reset()
             var stamp = test.bootMs()
             feeder.run(stamp)
             press(stamp)
-            function pauses() {
-                return desktop.sequence.filter(function(c) { return c === "mce req_display_blanking_pause" }).length
-            }
-            waitFor(function() { return pauses() >= 1 }, 5000, "the pause is asked", function() {
-                var first = Date.now()
-                waitFor(function() { return pauses() >= 2 }, 3000, "and again", function() {
-                    check(Date.now() - first >= 150, "300 ms after the first: " + (Date.now() - first) + " ms")
-                    release(test.bootMs())
-                    settled(function() {
-                        feeder.stop()
-                        var n = pauses()
-                        after(600, function() {
-                            expectEqual(pauses(), n, "and no more once the screen is away")
-                            hold.pauseAgainMs = 3600000
+            waitFor(function() { return mce.paused }, 5000, "the note holds the pause", function() {
+                mce.clear()
+                mceRequest.call("req_tklock_mode_change", "locked")
+                waitFor(function() { return mce.log.indexOf("pause held") !== -1 }, 3000, "locked mid-note: unlocked again, the pause held again", function() {
+                    var t = mce.times
+                    check(t[t.length - 1] - t[0] < 800, "at once, not at the next retry: " + (t[t.length - 1] - t[0]) + " ms")
+                    expectEqual(mce.log, ["mce req_tklock_mode_change locked", "locked", "pause dropped", "mce req_tklock_mode_change unlocked", "unlocked",
+                                          "mce req_display_blanking_pause", "pause held"],
+                                "mce had the lock and dropped the pause, then the hold's unlock, then its pause")
+                    after(1800, function() {
+                        check(mce.display === "on", "and the display stays on, past the lockscreen's blank: " + mce.display)
+                        release(test.bootMs())
+                        settled(function() {
+                            feeder.stop()
+                            mce.lockBlankMs = 0
+                            check(mce.tklock === "locked", "locked again after the note")
                             done()
                         })
                     })
@@ -935,16 +1207,120 @@ Scene {
             })
         },
 
-        // A click holds neither the screen nor the lockscreen.
+        // An unlock mce refuses, though the display looked on: asked again every
+        // unlockRetryMs until mce takes it.
         function(done) {
-            desktop.longTimeout = true
+            desktop.scene({})
+            mce.reset("off", "locked")
+            hold.unlockRetryMs = 300
+            reset()
+            var stamp = test.bootMs()
+            feeder.run(stamp)
+            press(stamp)
+            function unlocks() { return mce.calls.filter(function(c) { return c === "req_tklock_mode_change unlocked" }).length }
+            waitFor(function() { return unlocks() >= 3 }, 5000, "the unlock refused is asked again", function() {
+                check(mce.events.every(function(e) { return e === "unlock denied: display off" }) && !mce.paused,
+                      "mce refused each, with its display off: " + mce.events.join(", "))
+                mceRequest.call("req_display_state_on", undefined)
+                waitFor(function() { return mce.paused }, 3000, "mce's display on: the next try unlocks, and the pause is held", function() {
+                    var log = mce.log
+                    check(log.indexOf("unlocked") > log.indexOf("mce req_display_state_on"),
+                          "after the display began to come on, which mce takes: " + mce.events.join(", "))
+                    var n = unlocks()
+                    after(1000, function() {
+                        expectEqual(unlocks(), n, "and no more unlocks once unlocked")
+                        release(test.bootMs())
+                        settled(function() {
+                            feeder.stop()
+                            hold.unlockRetryMs = 1000
+                            done()
+                        })
+                    })
+                })
+            })
+        },
+
+        // The renewal: the touch lock asked about, and the pause renewed, every
+        // blankingRenewMs, and none of it once the screen is away.
+        function(done) {
+            desktop.scene({})
+            hold.blankingRenewMs = 400
+            reset()
+            var stamp = test.bootMs()
+            feeder.run(stamp)
+            press(stamp)
+            function pauses() { return mce.calls.filter(function(c) { return c === "req_display_blanking_pause" }).length }
+            function asks() { return mce.calls.filter(function(c) { return c === "get_tklock_mode" }).length }
+            waitFor(function() { return pauses() >= 3 && asks() >= 2 }, 5000, "the pause is renewed, and the touch lock asked about", function() {
+                release(test.bootMs())
+                settled(function() {
+                    feeder.stop()
+                    waitFor(function() { return mce.calls.indexOf("req_tklock_mode_change locked-delay") !== -1 }, 3000, "mce has the lock", function() {
+                        var n = mce.calls.length
+                        after(1000, function() {
+                            expectEqual(mce.calls.length, n, "and nothing more once the screen is away")
+                            hold.blankingRenewMs = 20000
+                            done()
+                        })
+                    })
+                })
+            })
+        },
+
+        // The panels moving meanwhile: compositor.qml leaves the lockscreen alone
+        // while a note keeps the screen, and the hold locks it again after, the
+        // face being in front. Moved off the face, it stays unlocked after, as
+        // the compositor has it off the face.
+        function(done) {
+            desktop.scene({})
+            reset()
+            var stamp = test.bootMs()
+            feeder.run(stamp)
+            press(stamp)
+            waitFor(function() { return mce.paused }, 5000, "the note holds the pause", function() {
+                desktop.panelX = 1
+                desktop.panelX = 0
+                expectEqual(desktop.locks, [], "the face left and come back to, meanwhile: the lockscreen isn't touched")
+                release(test.bootMs())
+                settled(function() {
+                    relocked("the face in front")
+                    reset()
+                    press(test.bootMs())
+                    waitFor(function() { return mce.paused }, 5000, "another note holds the pause", function() {
+                        desktop.panelY = 1
+                        release(test.bootMs())
+                        settled(function() {
+                            feeder.stop()
+                            check(mce.tklock === "unlocked" && desktop.trace.indexOf("mce req_tklock_mode_change locked-delay") === -1,
+                                  "moved to the app list meanwhile: left unlocked after, as off the face")
+                            expectEqual(desktop.locks, [], "and the lockscreen untouched")
+                            desktop.scene({})
+                            done()
+                        })
+                    })
+                })
+            })
+        },
+
+        // A launcher that dies leaves no pause (mce drops a client's when it
+        // leaves the bus), and its next start locks the screen again.
+        function(done) {
+            var start = sh("grep -c 'LipstickSettings.lockScreen(true)' /src/src/qml/MainScreen.qml").output.trim()
+            expectEqual(start, "1", "MainScreen.qml locks the screen when the launcher starts")
+            done()
+        },
+
+        // A click holds neither the screen nor the touch lock.
+        function(done) {
+            desktop.scene({})
             reset()
             var stamp = test.bootMs()
             press(stamp)
             after(90, function() {
                 release(test.bootMs())
                 after(900, function() {
-                    expectEqual({locks: desktop.locks, kept: hold.screenKept}, {locks: [], kept: false}, "a click leaves the lockscreen alone")
+                    expectEqual({tklock: mce.calls.filter(function(c) { return c.indexOf("tklock") !== -1 }), kept: hold.screenKept, locks: desktop.locks},
+                                {tklock: [], kept: false, locks: []}, "a click leaves the touch lock alone")
                     done()
                 })
             })
@@ -1033,9 +1409,10 @@ Scene {
                 after(400, function() {
                     release(test.bootMs())
                     settled(function() {
-                        expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_display_blanking_pause", stopCall,
-                                                              "mce req_display_cancel_blanking_pause"],
-                                    "no Keep, no Stop and no Cancel for no note; the screen on, the leases ended with it")
+                        expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause", stopCall,
+                                                              "mce req_display_cancel_blanking_pause", "mce req_tklock_mode_change locked-delay"],
+                                    "no Keep, no Stop and no Cancel for no note; the screen kept on, the leases ended with it, and the face locked again")
+                        check(mce.tklock === "locked", "a refusal: locked again after")
                         expectEqual(stripped(voicenotes.calls), ["Arm <time>"], "ioslink only heard Arm")
                         done()
                     })
@@ -1089,8 +1466,9 @@ Scene {
                 waitFor(function() { return voicenotes.calls.length >= 3 }, 5000, "ioslink has Keep and Stop, after Arm's answer", function() {
                     expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"],
                                 "a hold released before Arm's answer: Keep, then Stop, when it comes")
-                    expectEqual(stripped(desktop.trace).slice(0, 5), [startCall, "ioslink Arm <time>", "mce req_display_blanking_pause", "ioslink Keep NOTE", "ioslink Stop NOTE <time>"],
-                                "in the order it sent them")
+                    expectEqual(stripped(desktop.trace).slice(0, 6), [startCall, "ioslink Arm <time>", "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause",
+                                                                       "ioslink Keep NOTE", "ioslink Stop NOTE <time>"],
+                                "in the order it sent them: the screen kept on at 0.5 s, Keep and Stop with Arm's answer")
                     waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
                         expectEqual(overlay.lineText, "Saved · sending", "saved: the hold lasted 1.1 s")
                         voicenotes.armDelay = 0
@@ -1107,13 +1485,15 @@ Scene {
             desktop.scene({displayOn: false})
             reset()
             press(test.bootMs())
-            waitFor(function() { return overlay.phase === "live" }, 5000, "the screen shows", function() {
+            waitFor(function() { return overlay.phase === "live" && mce.paused }, 5000, "the screen shows, and mce holds the pause", function() {
                 after(300, function() {
                     release(test.bootMs())
                     settled(function() {
-                        expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_display_state_on", "mce req_display_blanking_pause",
-                                                              "ioslink Keep NOTE", "ioslink Stop NOTE <time>", stopCall, "mce req_display_cancel_blanking_pause"],
-                                    "with the display off: the screen, then mce's wake, then the pause and Keep")
+                        expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_display_state_on", "ioslink Keep NOTE",
+                                                              "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause",
+                                                              "ioslink Stop NOTE <time>", stopCall, "mce req_display_cancel_blanking_pause",
+                                                              "mce req_tklock_mode_change locked-delay"],
+                                    "with the display off: the screen, mce's wake and Keep; the unlock once the display is on, then the pause; the lock after")
                         desktop.scene({})
                         done()
                     })
@@ -1140,6 +1520,7 @@ Scene {
                             var log = desktop.phaseLog
                             var shown = log[log.length - 1].at - log[log.length - 2].at
                             check(shown >= 2600 && shown < 4200, "a drop shows 2.5 s, and the fade is 250 ms more: " + shown + " ms")
+                            relocked("a drop")
                             voicenotes.outcome = "auto"
                             voicenotes.drops = []
                             overlay.farewellMs = 600
@@ -1164,6 +1545,7 @@ Scene {
                         release(test.bootMs())
                         settled(function() {
                             check(true, "and the leases end with the screen")
+                            relocked("ioslink gone")
                             check(voicenotes.start(), "ioslink comes back")
                             waitFor(function() { return hold.ioslinkUp }, 8000, "on the bus", done)
                         })
@@ -1205,6 +1587,7 @@ Scene {
                         expectEqual({duration: overlay.durationText, line: overlay.lineText}, {duration: "10:00", line: "10 min limit · saved"}, "the limit")
                         settled(function() {
                             check(true, "the leases end with the screen though the button is still down")
+                            relocked("the 10:00 limit")
                             release(test.bootMs())
                             waitFor(function() { return voicenotes.calls.length >= 3 }, 5000, "the release still calls Stop", function() {
                                 expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "the release still calls Stop, past the note's own end")
@@ -1247,6 +1630,7 @@ Scene {
                         settled(function() {
                             var wait = Date.now() - at
                             check(wait >= 600 && wait < 3000, "no word in 0.7 s: the screen goes with no claim, after " + wait + " ms")
+                            relocked("no word from ioslink")
                             voicenotes.stopDelay = 80
                             overlay.savingMs = 5000
                             done()
@@ -1271,8 +1655,9 @@ Scene {
                     expectEqual(overlay.phase, "idle", "and the screen goes")
                     release(test.bootMs())
                     after(300, function() {
-                        expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_display_blanking_pause", stopCall, "mce req_display_cancel_blanking_pause"],
-                                    "no Keep and no Stop for a note that never was")
+                        expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause",
+                                                              stopCall, "mce req_display_cancel_blanking_pause", "mce req_tklock_mode_change locked-delay"],
+                                    "no Keep and no Stop for a note that never was; the hard limit locks the face again too")
                         voicenotes.answer = "id"
                         hold.capMs = 635000
                         done()
@@ -1411,7 +1796,10 @@ Scene {
                                         c.label + ": Arm, Keep, Stop, and no app")
                             expectEqual(mce.calls.indexOf("req_display_state_on") !== -1, !c.lit,
                                         c.label + (c.lit ? ": mce isn't asked to turn the display on" : ": mce turns the display on"))
-                            settled(function() { after(450, function() { next(i + 1) }) })
+                            settled(function() {
+                                relocked(c.label + ", a slip of 0.8 s")
+                                after(450, function() { next(i + 1) })
+                            })
                         })
                     })
                 })
@@ -1457,6 +1845,8 @@ Scene {
                             settled(function() {
                                 expectEqual({home: desktop.homeActive, x: desktop.panelX, y: desktop.panelY}, before,
                                             "and " + c.where + " is where it was, when the screen has gone")
+                                check(mce.tklock === "unlocked" && desktop.trace.indexOf("mce req_tklock_mode_change locked-delay") === -1,
+                                      "and, off the face, the touch lock is left unlocked: " + mce.tklock)
                                 after(450, function() { next(i + 1) })
                             })
                         })
