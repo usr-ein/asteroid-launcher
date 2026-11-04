@@ -32,6 +32,14 @@
  *
  * The row of bars slides one bar every 100 ms; with `slide` false it steps
  * instead, which draws about a sixth of the frames (10 a second, not 60).
+ * It moves one bar at each tick, and never more, and only to a bar whose levels
+ * are all in: a bar, once drawn, keeps its height. The levels come in bursts
+ * (ioslink sends them every 100 ms, after the capture's own delay), so the row
+ * runs `lag` ms behind the clock, and the ticks fall in the middle between two
+ * bars' starts on that clock, so that a tick a frame late, or early, still
+ * moves one bar. When the levels are late, the row waits for them, then catches
+ * up a bar every `catchUpMs`. A burst that comes once the screen shows is drawn
+ * bar by bar, at that pace: never several bars at once.
  */
 import QtQuick 2.15
 import Nemo.DBus 2.0
@@ -47,9 +55,14 @@ Item {
     // The row of bars slides 10 px over each 100 ms, or steps 10 px at the end.
     property bool slide: true
     // The levels reach the screen some tenths of a second after they were
-    // heard: this much of the clock isn't drawn, so that the newest bar isn't
-    // empty.
-    property int lag: 150
+    // heard: this much of the clock isn't drawn, so that the newest bar has its
+    // levels. ioslink's 100 ms between sends, the capture's delay and the bus'
+    // make up to about 200 ms.
+    property int lag: 250
+    // A tick while the row is behind the clock, catching up.
+    property int catchUpMs: 60
+    // When the next tick comes, in ms after the last: for the tests.
+    readonly property int nextTickMs: tickTimer.interval
     // The long press' threshold, for a clock that State hasn't started yet.
     property int holdMs: 500
     // How long the end shows, and how long it fades.
@@ -78,8 +91,10 @@ Item {
     property bool frozen: false
     readonly property string durationText: View.clock(elapsed)
 
-    // The levels by bar (View.addLevels), the bars to draw, and State, parsed.
+    // The levels by bar (View.addLevels), the newest bar drawn while it
+    // records, the bars to draw, and State, parsed.
     property var bars: []
+    property int newestDrawn: -1
     property var heights: []
     property var info: ({})
     property real startedAt: 0
@@ -105,7 +120,9 @@ Item {
     function arm() {
         cut()
         bars = []
+        newestDrawn = -1
         heights = []
+        frozen = false
         noteId = ""
         startedAt = 0
         elapsed = 0
@@ -135,6 +152,9 @@ Item {
         if (startedAt === 0)
             startedAt = nowMs() - holdMs
         phase = "live"
+        // It opens with the levels gathered since the press, all at once.
+        elapsed = nowMs() - startedAt
+        newestDrawn = Math.max(-1, Math.min(View.newestBar(elapsed, lag), View.lastComplete(bars)))
         tick()
     }
 
@@ -233,24 +253,39 @@ Item {
         phase = "stopped"
     }
 
-    // The screen's every 100 ms while it records.
+    // The screen's tick, about every 100 ms while it records: one bar more,
+    // when its levels are in, and the time of the next tick.
     function tick() {
         elapsed = nowMs() - startedAt
         dotOpacity = View.breath(elapsed)
         var line = View.recordingLine(elapsed)
         lineText = line.text
         lineAmber = line.amber
+        var target = View.newestBar(elapsed, lag)
+        var step = newestDrawn < Math.min(target, View.lastComplete(bars))
+        if (step)
+            newestDrawn++
+        // The next tick: halfway between two bars' starts, or sooner while the
+        // row is behind.
+        var at = (elapsed - lag) / View.BAR_MS
+        var wait = newestDrawn < target ? catchUpMs : (Math.floor(at) + 1.5 - at) * View.BAR_MS
+        wait = Math.round(Math.max(catchUpMs, Math.min(1.5 * View.BAR_MS, wait)))
         rebuild()
-        if (slide) {
+        if (slide && step) {
             // The bars just moved one place left, as the row moves one bar
-            // right; then it slides back to where it began.
+            // right; then it slides back to where it began, by the next tick.
             row.x = 0
+            slideAnimation.duration = wait
             slideAnimation.restart()
+        }
+        if (phase === "live") {
+            tickTimer.interval = wait
+            tickTimer.restart()
         }
     }
 
     function rebuild() {
-        var newest = frozen ? View.lastBar(bars) : View.newestBar(elapsed, lag)
+        var newest = frozen ? View.lastBar(bars) : newestDrawn
         heights = View.heights(bars, newest, slots)
     }
 
@@ -290,14 +325,16 @@ Item {
         if (noteId === "" || id !== noteId || phase === "idle")
             return
         View.addLevels(bars, fromMs, centibels)
-        rebuild()
+        // While it records, the bars move at the tick; frozen, the screen
+        // shows the note's last levels as they come.
+        if (frozen)
+            rebuild()
     }
 
+    // Started by show(), and again by each tick() for the next.
     Timer {
         id: tickTimer
         interval: 100
-        repeat: true
-        running: overlay.phase === "live"
         onTriggered: overlay.tick()
     }
 

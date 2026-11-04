@@ -237,6 +237,7 @@ Item {
         overlay: voiceOverlay
         ioslinkUp: voiceNotesBus.status === DBusInterface.Available
         displayLit: comp.displayOn && !Lipstick.compositor.displayAmbient
+        lockWanted: comp.longTimeout
         callMce: function(method, args, callback) { mceRequest.call(method, args, callback) }
         callIoslink: function(method, args, callback, errback) {
             voiceNotesBus.typedCall(method, args, callback, errback)
@@ -265,12 +266,14 @@ Item {
         property bool longTimeout: homeActive
         Component.onCompleted: longTimeout = Qt.binding(function() { return homeActive && (Desktop.panelsGrid.currentVerticalPos == 0 && Desktop.panelsGrid.currentHorizontalPos == 0) })
         // The face is the lockscreen for mce, which blanks it 10 s after it came
-        // on and allows no blanking pause while it is locked. A voice note being
-        // recorded needs the display on, so the lockscreen is let go for as long
-        // as voiceNote keeps the screen (VoiceNoteHold.qml), and what the face
-        // wants returns after.
-        property bool lockscreenWanted: longTimeout && !voiceNote.screenKept
-        onLockscreenWantedChanged: lipstickSettings.lockscreenVisible = lockscreenWanted
+        // on and allows no blanking pause while it is locked. While a voice note
+        // keeps the screen on, VoiceNoteHold.qml unlocks it once the display is
+        // on, and locks it again after if the face is in front: the panels
+        // moving meanwhile leave it alone.
+        onLongTimeoutChanged: {
+            if (!voiceNote.screenKept)
+                lipstickSettings.lockscreenVisible = longTimeout
+        }
 
         // True if the home window is the topmost window
         homeActive: topmostWindow == comp.homeWindow

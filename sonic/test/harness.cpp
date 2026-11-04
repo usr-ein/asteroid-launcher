@@ -358,18 +358,107 @@ private:
 };
 
 
+// mce's signal interface, as the stand-in sends it: the touch lock's mode, and
+// whether a blanking pause is allowed (mce's tklock.c and display.c). It is
+// introspectable, as mce's is, which Nemo.DBus needs to connect a signal.
+class MceSignals : public QObject
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "com.nokia.mce.signal")
+
+signals:
+    Q_SCRIPTABLE void tklock_mode_ind(const QString &mode);
+    Q_SCRIPTABLE void display_blanking_pause_allowed_ind(bool allowed);
+    Q_SCRIPTABLE void display_status_ind(const QString &status);
+};
+
 // mce's request interface on the system bus, which is the test bus here, as
-// the launcher's VoiceNoteHold calls it: the CPU keepalive, and the display's
-// wake and blanking pause. It records each call, with its time.
+// the launcher's VoiceNoteHold calls it: the CPU keepalive, the display's
+// wake, the touch lock and the blanking pause. It records each call, with its
+// time, and plays mce's own rules for the display (mce 1.109's tklock.c and
+// display.c, the watch's build):
+// - the display: "off", "powering" (on its way, after req_display_state_on)
+//   or "on", which it reaches powerUpMs after the request;
+// - the touch lock: unlocking is denied unless the display is on or on its way
+//   ("tkunlock denied due to display=OFF"), locking always allowed, and the
+//   mode signalled after every request, a denied one too;
+// - a blanking pause is allowed only with the display on and the touch lock
+//   off; a pause asked otherwise is ignored, and one held is dropped as soon as
+//   it isn't allowed. A pause lasts pauseMs;
+// - the display blanks lockBlankMs after it came on while the touch lock is
+//   locked ("blank from lockscreen"), blankMs while it is unlocked, and never
+//   while a pause is held; when it blanks, the touch lock locks. Either at 0,
+//   as they start, never: a scene sets them where it tests them.
 class MceObject : public QObject
 {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "com.nokia.mce.request")
 
 public:
+    MceObject()
+    {
+        m_power.setSingleShot(true);
+        m_blank.setSingleShot(true);
+        connect(&m_power, &QTimer::timeout, this, [this] {
+            if (m_display == QLatin1String("powering"))
+                setDisplay(QStringLiteral("on"), QStringLiteral("the display is on"));
+        });
+        connect(&m_blank, &QTimer::timeout, this, [this] { blanked(); });
+    }
+
     QStringList m_calls;
     QVariantList m_times;
     int m_period = 60;
+    // What mce did, in order: "display on", "unlock denied: display off",
+    // "unlocked", "locked", "pause held", "pause ignored", "pause dropped",
+    // "blanked: locked" or "blanked: unlocked".
+    QStringList m_events;
+    QVariantList m_eventTimes;
+    // The calls, each "mce <call>", and the events, in the order they came.
+    QStringList m_log;
+    QString m_display = QStringLiteral("on");
+    QString m_tklock = QStringLiteral("locked");
+    bool m_allowed = false;
+    qint64 m_pauseUntil = 0;
+    int m_powerUpMs = 300;
+    int m_lockBlankMs = 0;
+    int m_blankMs = 0;
+    int m_pauseMs = 60000;
+    MceSignals m_signals;
+    // Tells the scene the display's state, as lipstick's displayOn and
+    // displayOff do.
+    std::function<void(bool)> m_displayChanged;
+
+    // The state a scene starts from, with no signal: the display and the touch
+    // lock as they are, no pause, and the blank timer from now.
+    void reset(const QString &display, const QString &tklock)
+    {
+        m_power.stop();
+        m_display = display;
+        m_tklock = tklock;
+        m_pauseUntil = 0;
+        m_allowed = m_display == QLatin1String("on") && m_tklock == QLatin1String("unlocked");
+        m_shownOn = now();
+        rethink();
+    }
+
+    // What the display does: the blank timer, from the last time it came on or
+    // the pause's end.
+    void rethink()
+    {
+        m_blank.stop();
+        if (m_display != QLatin1String("on"))
+            return;
+        const qint64 t = now();
+        if (m_pauseUntil > t) {
+            m_blank.start(int(m_pauseUntil - t));
+            return;
+        }
+        const qint64 from = qMax(m_shownOn, m_pauseEnded);
+        const int timeout = m_tklock == QLatin1String("locked") ? m_lockBlankMs : m_blankMs;
+        if (timeout > 0)
+            m_blank.start(int(qMax<qint64>(0, from + timeout - t)));
+    }
 
 public slots:
     Q_SCRIPTABLE int req_cpu_keepalive_period(const QString &session)
@@ -387,23 +476,144 @@ public slots:
         record(QStringLiteral("req_cpu_keepalive_stop %1").arg(session));
         return true;
     }
-    Q_SCRIPTABLE QString req_display_state_on()
+    Q_SCRIPTABLE void req_display_state_on()
     {
         record(QStringLiteral("req_display_state_on"));
-        return QStringLiteral("on");
+        if (m_display == QLatin1String("off")) {
+            m_display = QStringLiteral("powering");
+            m_power.start(m_powerUpMs);
+            evaluate();
+        } else if (m_display == QLatin1String("on")) {
+            m_shownOn = now();
+            rethink();
+        }
     }
-    Q_SCRIPTABLE void req_display_blanking_pause() { record(QStringLiteral("req_display_blanking_pause")); }
+    Q_SCRIPTABLE void req_tklock_mode_change(const QString &mode)
+    {
+        record(QStringLiteral("req_tklock_mode_change %1").arg(mode));
+        if (mode == QLatin1String("unlocked")) {
+            if (m_display == QLatin1String("off")) {
+                event(QStringLiteral("unlock denied: display off"));
+            } else if (m_tklock != QLatin1String("unlocked")) {
+                m_tklock = QStringLiteral("unlocked");
+                event(QStringLiteral("unlocked"));
+            }
+        } else if (mode.startsWith(QLatin1String("locked"))) {
+            if (m_tklock != QLatin1String("locked")) {
+                m_tklock = QStringLiteral("locked");
+                event(QStringLiteral("locked"));
+            }
+        }
+        evaluate();
+        rethink();
+        // After every request, as mce's ui notify does, a moment later.
+        QTimer::singleShot(0, this, [this] { emit m_signals.tklock_mode_ind(m_tklock); });
+    }
+    Q_SCRIPTABLE QString get_tklock_mode()
+    {
+        record(QStringLiteral("get_tklock_mode"));
+        return m_tklock;
+    }
+    Q_SCRIPTABLE bool get_display_blanking_pause_allowed()
+    {
+        record(QStringLiteral("get_display_blanking_pause_allowed"));
+        return m_allowed;
+    }
+    Q_SCRIPTABLE void req_display_blanking_pause()
+    {
+        record(QStringLiteral("req_display_blanking_pause"));
+        if (!m_allowed) {
+            event(QStringLiteral("pause ignored"));
+            return;
+        }
+        m_pauseUntil = now() + m_pauseMs;
+        event(QStringLiteral("pause held"));
+        rethink();
+    }
     Q_SCRIPTABLE void req_display_cancel_blanking_pause()
     {
         record(QStringLiteral("req_display_cancel_blanking_pause"));
+        if (m_pauseUntil > 0) {
+            m_pauseUntil = 0;
+            m_pauseEnded = now();
+            rethink();
+        }
     }
 
 private:
+    static qint64 now() { return QDateTime::currentMSecsSinceEpoch(); }
+
     void record(const QString &call)
     {
         m_calls << call;
-        m_times << double(QDateTime::currentMSecsSinceEpoch());
+        m_times << double(now());
+        m_log << QStringLiteral("mce ") + call;
     }
+
+    void event(const QString &what)
+    {
+        m_events << what;
+        m_eventTimes << double(now());
+        m_log << what;
+    }
+
+    // Whether a pause is allowed, signalled when it changes; a pause held is
+    // dropped when it stops being allowed.
+    void evaluate()
+    {
+        const bool allowed = m_display == QLatin1String("on") && m_tklock == QLatin1String("unlocked");
+        if (allowed == m_allowed)
+            return;
+        m_allowed = allowed;
+        if (!allowed && m_pauseUntil > 0) {
+            m_pauseUntil = 0;
+            m_pauseEnded = now();
+            event(QStringLiteral("pause dropped"));
+        }
+        emit m_signals.display_blanking_pause_allowed_ind(allowed);
+    }
+
+    void setDisplay(const QString &state, const QString &what)
+    {
+        m_display = state;
+        event(what);
+        const bool on = state == QLatin1String("on");
+        if (on)
+            m_shownOn = now();
+        emit m_signals.display_status_ind(on ? QStringLiteral("on") : QStringLiteral("off"));
+        if (m_displayChanged)
+            m_displayChanged(on);
+        evaluate();
+        rethink();
+    }
+
+    // The blank timer's end: a pause that lapsed, or the display off, and the
+    // touch lock locked with it.
+    void blanked()
+    {
+        if (m_display != QLatin1String("on"))
+            return;
+        if (m_pauseUntil > 0) {
+            if (m_pauseUntil > now()) {
+                rethink();
+                return;
+            }
+            m_pauseUntil = 0;
+            m_pauseEnded = now();
+            event(QStringLiteral("pause lapsed"));
+            rethink();
+            return;
+        }
+        const QString was = m_tklock;
+        m_tklock = QStringLiteral("locked");
+        setDisplay(QStringLiteral("off"), QStringLiteral("blanked: %1").arg(was));
+        emit m_signals.tklock_mode_ind(m_tklock);
+    }
+
+    QTimer m_power;
+    QTimer m_blank;
+    qint64 m_shownOn = 0;
+    qint64 m_pauseEnded = 0;
 };
 
 // The stand-in for mce that a scene drives, as `mce`.
@@ -414,34 +624,84 @@ class MceStandIn : public QObject
     // since the epoch.
     Q_PROPERTY(QStringList calls READ calls)
     Q_PROPERTY(QVariantList times READ times)
+    // What mce did with them, and when (MceObject's events), and both in the
+    // order they came: "mce <call>" and the events.
+    Q_PROPERTY(QStringList events READ events)
+    Q_PROPERTY(QVariantList eventTimes READ eventTimes)
+    Q_PROPERTY(QStringList log READ log)
     // What req_cpu_keepalive_period answers, in seconds.
     Q_PROPERTY(int period READ period WRITE setPeriod)
+    // The display ("off", "powering", "on"), the touch lock ("locked",
+    // "unlocked"), whether a pause is allowed, and whether one is held.
+    Q_PROPERTY(QString display READ display)
+    Q_PROPERTY(QString tklock READ tklock)
+    Q_PROPERTY(bool allowed READ allowed)
+    Q_PROPERTY(bool paused READ paused)
+    // mce's times, in ms: the display's power up, the blank from the
+    // lockscreen, the usual blank, and a pause's length.
+    Q_PROPERTY(int powerUpMs READ powerUpMs WRITE setPowerUpMs)
+    Q_PROPERTY(int lockBlankMs READ lockBlankMs WRITE setLockBlankMs)
+    Q_PROPERTY(int blankMs READ blankMs WRITE setBlankMs)
+    Q_PROPERTY(int pauseMs READ pauseMs WRITE setPauseMs)
 
 public:
+    MceStandIn()
+    {
+        m_object.m_displayChanged = [this](bool on) { emit displayChanged(on); };
+    }
+
     QStringList calls() const { return m_object.m_calls; }
     QVariantList times() const { return m_object.m_times; }
+    QStringList events() const { return m_object.m_events; }
+    QVariantList eventTimes() const { return m_object.m_eventTimes; }
+    QStringList log() const { return m_object.m_log; }
     int period() const { return m_object.m_period; }
     void setPeriod(int period) { m_object.m_period = period; }
+    QString display() const { return m_object.m_display; }
+    QString tklock() const { return m_object.m_tklock; }
+    bool allowed() const { return m_object.m_allowed; }
+    bool paused() const { return m_object.m_pauseUntil > QDateTime::currentMSecsSinceEpoch(); }
+    int powerUpMs() const { return m_object.m_powerUpMs; }
+    void setPowerUpMs(int ms) { m_object.m_powerUpMs = ms; }
+    int lockBlankMs() const { return m_object.m_lockBlankMs; }
+    void setLockBlankMs(int ms) { m_object.m_lockBlankMs = ms; m_object.rethink(); }
+    int blankMs() const { return m_object.m_blankMs; }
+    void setBlankMs(int ms) { m_object.m_blankMs = ms; m_object.rethink(); }
+    int pauseMs() const { return m_object.m_pauseMs; }
+    void setPauseMs(int ms) { m_object.m_pauseMs = ms; }
 
     Q_INVOKABLE bool start()
     {
         return m_bus.registerObject(path, &m_object, QDBusConnection::ExportScriptableSlots)
+            && m_bus.registerObject(signalPath, &m_object.m_signals, QDBusConnection::ExportScriptableSignals)
             && m_bus.registerService(service);
     }
     Q_INVOKABLE void stop()
     {
         m_bus.unregisterService(service);
+        m_bus.unregisterObject(signalPath);
         m_bus.unregisterObject(path);
     }
     Q_INVOKABLE void clear()
     {
         m_object.m_calls.clear();
         m_object.m_times.clear();
+        m_object.m_events.clear();
+        m_object.m_eventTimes.clear();
+        m_object.m_log.clear();
     }
+    // Where a scene starts: the display ("on" or "off") and the touch lock
+    // ("locked" or "unlocked"), with no pause, and no signal.
+    Q_INVOKABLE void reset(const QString &display, const QString &tklock) { m_object.reset(display, tklock); }
+
+signals:
+    // The display came on or went off, as lipstick tells the compositor.
+    void displayChanged(bool on);
 
 private:
     const QString service = QStringLiteral("com.nokia.mce");
     const QString path = QStringLiteral("/com/nokia/mce/request");
+    const QString signalPath = QStringLiteral("/com/nokia/mce/signal");
     QDBusConnection m_bus = QDBusConnection::connectToBus(QDBusConnection::SystemBus, QStringLiteral("mce"));
     MceObject m_object;
 };

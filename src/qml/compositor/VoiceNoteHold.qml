@@ -12,8 +12,8 @@
  *   press, then ioslink's Arm(pressedAt), without waiting for its answer.
  *   With no ioslink on the bus, nothing: a hold does nothing.
  * - confirm(), 0.5 s into the hold: the recording screen shows at once, the
- *   lockscreen is let go (screenKept), the display comes on if it wasn't, mce's
- *   blanking pause starts, and Keep(id) tells ioslink that the note is real.
+ *   display comes on if it wasn't, the screen is kept on (below), and Keep(id)
+ *   tells ioslink that the note is real.
  * - end(releasedAt, confirmed), at the release: Stop(id, releasedAt) for a
  *   note, Cancel(id) for a click.
  * Arm's answer comes when it comes, and holds the id, which Keep, Stop and
@@ -28,18 +28,34 @@
  * keepalive and pause when the client leaves the bus, so that a launcher that
  * crashes or is killed leaves neither behind.
  *
- * The screen stays on for the whole note because of the lockscreen, not only
- * the pause. The watch face is the lockscreen for mce (compositor.qml's
- * lockscreenWanted): mce blanks a locked display 10 s after it came on, and
- * allows no blanking pause while the lockscreen is locked ("blanking pause
- * allowed" follows its tklock mode: unlocked, true; locked, false). A pause
- * asked on the face was received and did nothing, and the display went off
- * 10 s into the note. So `screenKept` is true from confirm() until the screen
- * is away, and compositor.qml unlocks the lockscreen for as long as it is.
- * Nothing needs undoing if the launcher dies: its next start locks the screen
- * again (MainScreen.qml's LipstickSettings.lockScreen).
+ * The screen stays on for the whole note, from confirm() until the screen is
+ * away (`screenKept`), and that takes the touch lock as well as the pause. The
+ * watch face is mce's lockscreen: mce blanks a locked display 10 s after it
+ * came on, and allows a blanking pause only with the display on and the touch
+ * lock off; a pause asked otherwise is ignored, and a pause held is dropped as
+ * soon as it stops being allowed (mce's display.c). And mce refuses to unlock
+ * unless the display is on or going on ("tkunlock denied due to display=OFF",
+ * its tklock.c): an unlock asked with the display off, at the press of a hold
+ * that woke the watch, does nothing. So, while the screen is kept:
+ *  - once the display is on (displayLit), the touch lock is asked to unlock,
+ *    never before, whatever mce said of it before the note;
+ *  - mce's touch lock mode is followed (its tklock_mode_ind, which mce sends
+ *    after every request too, and get_tklock_mode at every renewal), and until
+ *    it says unlocked the unlock is asked again every unlockRetryMs, and at
+ *    every renewal; locked again mid-note, it is asked again at once;
+ *  - the pause is asked once the touch lock is unlocked, or mce says a pause is
+ *    allowed (display_blanking_pause_allowed_ind), and renewed every
+ *    blankingRenewMs, well inside mce's 60 s;
+ *  - at the end, after the leases, the touch lock is locked again if the note
+ *    asked to unlock it and the face is in front (lockWanted): the save, a slip
+ *    too short to keep, the 10:00 limit, a refusal, ioslink gone and the hard
+ *    limit all end there. compositor.qml leaves the lockscreen alone meanwhile.
+ * mce drops a client's pause when the client leaves the bus, so a launcher that
+ * crashes or is killed leaves no pause behind, and its next start locks the
+ * screen again (MainScreen.qml's LipstickSettings.lockScreen).
  */
 import QtQuick 2.15
+import Nemo.DBus 2.0
 
 Item {
     id: hold
@@ -50,6 +66,9 @@ Item {
     property bool ioslinkUp: false
     // Whether the display is fully on: neither off nor ambient.
     property bool displayLit: true
+    // Whether the face is in front, the lockscreen: compositor.qml's
+    // longTimeout. The touch lock is locked again after a note only then.
+    property bool lockWanted: true
     // function(method, args, callback): a call to mce's request interface;
     // args a string, or undefined; callback optional, given the answer.
     property var callMce
@@ -58,11 +77,13 @@ Item {
     property var callIoslink
 
     // mce ends a keepalive that isn't renewed within 75 s, and a blanking
-    // pause within 60 s. This is half of mce's own period, once it says.
+    // pause within 60 s. The keepalive is renewed at half of mce's own period,
+    // once it says; the pause three times a minute.
     property int keepaliveRenewMs: 30000
-    property int blankingRenewMs: 30000
-    // The pause is asked once more this long after it began.
-    property int pauseAgainMs: 1500
+    property int blankingRenewMs: 20000
+    // While the display is on and the touch lock still locked, the unlock is
+    // asked again this often.
+    property int unlockRetryMs: 1000
     // The longest the leases are held, whatever happens: a note is at most
     // 10:00, and ioslink says so within its margin.
     property int capMs: 635000
@@ -78,8 +99,21 @@ Item {
     property bool blankingPaused: false
     property bool periodAsked: false
     // Whether the note keeps the screen on: from confirm() until the screen is
-    // away. compositor.qml lets go of the lockscreen while it is true.
+    // away. compositor.qml leaves the lockscreen alone while it is true.
     property bool screenKept: false
+    // mce's touch lock, as its tklock_mode_ind and get_tklock_mode say:
+    // locked until it says otherwise, as the face is. And whether a blanking
+    // pause is allowed, as its display_blanking_pause_allowed_ind says.
+    property bool tklockLocked: true
+    property bool pauseAllowed: false
+    // Whether the pause was asked while mce allowed it, so that mce holds it:
+    // it is asked again once mce has dropped it, and at each renewal.
+    property bool pauseHeld: false
+    // Whether this note asked the touch lock to unlock: it locks it again. And
+    // whether mce has said since that it is unlocked: until it has, what the
+    // hold believed before isn't trusted, and the unlock is asked anyway.
+    property bool unlockAsked: false
+    property bool unlockSeen: false
 
     visible: false
 
@@ -108,7 +142,6 @@ Item {
             over(h)
             return
         }
-        // The lockscreen first: mce allows the pause only once it is unlocked.
         screenKept = true
         if (h.replied && h.refused) {
             h.refusalShown = true
@@ -116,14 +149,53 @@ Item {
         } else {
             overlay.show()
         }
+        // The display first, if it was off: the unlock waits for it.
         if (!displayLit)
             callMce("req_display_state_on", undefined)
-        callMce("req_display_blanking_pause", undefined)
-        blankingPaused = true
-        // Once more, in a moment: a pause asked while the display was still
-        // coming on, or before mce had the unlock, is ignored.
-        pauseAgain.restart()
+        keepScreen()
         advance(h)
+    }
+
+    // The screen kept on, with the display on: the touch lock asked to unlock
+    // until mce says it is unlocked, and while it says it is locked; else the
+    // pause. See the header.
+    function keepScreen() {
+        if (!screenKept || !displayLit)
+            return
+        if (tklockLocked || !unlockSeen) {
+            unlockAsked = true
+            callMce("req_tklock_mode_change", "unlocked")
+        } else if (!pauseHeld) {
+            pause()
+        }
+    }
+
+    function pause() {
+        if (!screenKept || !displayLit)
+            return
+        blankingPaused = true
+        pauseHeld = pauseAllowed
+        callMce("req_display_blanking_pause", undefined)
+    }
+
+    // What mce says of its touch lock, in its signal, which it sends after every
+    // request too, or in get_tklock_mode's answer: "locked" (also "locked-dim"
+    // and "locked-delay") or "unlocked". Unlocked: the pause. Locked again
+    // mid-note: the unlock again, at once. Still locked, an unlock refused: the
+    // retry asks again, not this, which would ask as fast as mce answers.
+    function tklockMode(mode) {
+        if (typeof mode !== "string" || mode === "")
+            return
+        var was = tklockLocked
+        tklockLocked = mode !== "unlocked"
+        if (!screenKept)
+            return
+        if (!tklockLocked) {
+            unlockSeen = true
+            keepScreen()
+        } else if (!was) {
+            keepScreen()
+        }
     }
 
     function end(releasedAt, confirmed) {
@@ -241,18 +313,40 @@ Item {
         }
         if (blankingPaused) {
             blankingPaused = false
-            pauseAgain.stop()
             callMce("req_display_cancel_blanking_pause", undefined)
         }
-        // The lockscreen last: compositor.qml locks it again if the face is in
-        // front, and mce's display timeouts are the face's once more.
+        // The touch lock last, locked again if the note unlocked it and the
+        // face is in front: mce's display timeouts are the face's once more.
+        // The way the compositor locks it, as lipstick's lockScreen() does.
+        if (unlockAsked && lockWanted)
+            callMce("req_tklock_mode_change", "locked-delay")
+        unlockAsked = false
+        unlockSeen = false
+        pauseHeld = false
         screenKept = false
     }
 
-    // The display came on while the pause was held: ask for it again.
-    onDisplayLitChanged: {
-        if (blankingPaused && displayLit)
-            callMce("req_display_blanking_pause", undefined)
+    // The display came on: the unlock, or the pause, now. A pause allowed: the
+    // pause, which mce now holds; not allowed: mce dropped it.
+    onDisplayLitChanged: keepScreen()
+    onPauseAllowedChanged: {
+        if (pauseAllowed)
+            pause()
+        else
+            pauseHeld = false
+    }
+
+    // mce's signals: its touch lock's mode, and whether a pause is allowed.
+    DBusInterface {
+        bus: DBus.SystemBus
+        service: "com.nokia.mce"
+        path: "/com/nokia/mce/signal"
+        iface: "com.nokia.mce.signal"
+        signalsEnabled: true
+        // Connected once mce is on the bus, which it introspects.
+        watchServiceStatus: true
+        function tklock_mode_ind(mode) { hold.tklockMode(mode) }
+        function display_blanking_pause_allowed_ind(allowed) { hold.pauseAllowed = allowed === true }
     }
 
     Connections {
@@ -268,20 +362,26 @@ Item {
         onTriggered: hold.callMce("req_cpu_keepalive_start", hold.session)
     }
 
+    // The renewal: mce asked again what its touch lock is, and the unlock or
+    // the pause, so that a signal missed costs one renewal at the most.
     Timer {
         interval: hold.blankingRenewMs
         repeat: true
-        running: hold.blankingPaused
-        onTriggered: hold.callMce("req_display_blanking_pause", undefined)
+        running: hold.screenKept
+        onTriggered: {
+            hold.callMce("get_tklock_mode", undefined, function(mode) { hold.tklockMode(mode) })
+            hold.pauseHeld = false
+            hold.keepScreen()
+        }
     }
 
+    // The unlock again, while the display is on and mce still says locked, or
+    // hasn't said yet.
     Timer {
-        id: pauseAgain
-        interval: hold.pauseAgainMs
-        onTriggered: {
-            if (hold.blankingPaused)
-                hold.callMce("req_display_blanking_pause", undefined)
-        }
+        interval: hold.unlockRetryMs
+        repeat: true
+        running: hold.screenKept && hold.displayLit && (hold.tklockLocked || !hold.unlockSeen)
+        onTriggered: hold.keepScreen()
     }
 
     // The hard limit on what is held.

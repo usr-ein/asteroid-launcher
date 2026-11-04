@@ -587,14 +587,17 @@ Scene {
             expectEqual(wiring, ["1", "1", "1", "1", "1", "1", "1", "1"],
                         "compositor.qml wires the hold to the guard and to voiceNote, and the recording screen is between the gesture area (z 5) and the round mask (z 6)")
             // The lockscreen: the face is the lockscreen for mce, which blanks it 10 s
-            // after it came on and allows no blanking pause while it is locked, so
-            // a voice note being recorded unlocks it (VoiceNoteHold.qml's
-            // screenKept). voicenote.qml tests this model of what compositor.qml
-            // wants; here it is shown to be the same lines.
-            var lock = sh("grep -c 'property bool lockscreenWanted: longTimeout && !voiceNote.screenKept' /src/src/qml/compositor/compositor.qml;"
-                          + " grep -c 'onLockscreenWantedChanged: lipstickSettings.lockscreenVisible = lockscreenWanted' /src/src/qml/compositor/compositor.qml;"
-                          + " grep -c 'onLongTimeoutChanged' /src/src/qml/compositor/compositor.qml; true").output.trim().split("\n")
-            expectEqual(lock, ["1", "1", "0"], "compositor.qml wants the lockscreen locked on the face unless voiceNote keeps the screen, and sets it on that alone")
+            // after it came on and allows no blanking pause while it is locked. A
+            // voice note keeping the screen on unlocks it once the display is on,
+            // and locks it again after if the face is in front (VoiceNoteHold.qml's
+            // lockWanted), and compositor.qml leaves it alone meanwhile.
+            // voicenote.qml tests this model of what compositor.qml does; here it is
+            // shown to be the same lines.
+            var lock = sh("sed -n '/onLongTimeoutChanged: {/,/^        }/p' /src/src/qml/compositor/compositor.qml | tr -s ' ' | tr -d '\\n';"
+                          + " echo; grep -c 'lockscreenVisible' /src/src/qml/compositor/compositor.qml;"
+                          + " grep -c 'lockWanted: comp.longTimeout' /src/src/qml/compositor/compositor.qml; true").output.trim().split("\n")
+            expectEqual(lock, ["onLongTimeoutChanged: { if (!voiceNote.screenKept) lipstickSettings.lockscreenVisible = longTimeout }", "1", "1"],
+                        "compositor.qml sets the lockscreen from longTimeout alone, but not while voiceNote keeps the screen, and gives the hold longTimeout as lockWanted")
             // With the display off a hold records over whatever was in front, an
             // app too, and leaves it there: the recording screen is over the layers
             // of the home, the apps, the notifications and the agents (z 1 to 4),
