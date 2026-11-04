@@ -410,9 +410,9 @@ they did.
       of the scene graph, and no Canvas. What a bar draws (voicenoteview.js):
       - **its level, smoothed:** an envelope in dB through the 50 ms levels,
         rising quickly (attack 80 ms) and falling slowly (release 300 ms), and
-        a bar is its mean at the bar's two levels. A click or the start tick, 50
-        ms alone, draws at about 20 px; a word falls away over 0.3 s instead of
-        flickering between full and flat;
+        a bar is its mean at the bar's two levels. 50 ms alone draws low: the
+        start tick at 22 px (58 before), a click at 27 px; a word falls away over
+        0.3 s instead of flickering between full and flat;
       - **measured from the room's floor:** the 15th percentile of the last 8 s of
         bars (their mean in dB of two levels), between -60 and -42 dBFS. Bars
         before the press, and bars with no level yet, count as -55 dBFS, the
