@@ -56,9 +56,12 @@ Item {
     property bool slide: true
     // The levels reach the screen some tenths of a second after they were
     // heard: this much of the clock isn't drawn, so that the newest bar has its
-    // levels. ioslink's 100 ms between sends, the capture's delay and the bus'
-    // make up to about 200 ms.
-    property int lag: 250
+    // levels. On the watch (a hold of 2026-11-04, 00:10, its Levels as they
+    // came), a level reaches the launcher 135 to 190 ms after its 50 ms end, the
+    // capture's delay and ioslink's 100 ms between sends, so a bar has its
+    // second level about 315 ms after the bar began: the tick that moves the
+    // row to it comes 350 ms after, halfway between two bars' starts.
+    property int lag: 300
     // A tick while the row is behind the clock, catching up.
     property int catchUpMs: 60
     // When the next tick comes, in ms after the last: for the tests.

@@ -7,16 +7,19 @@
  * waits on real time, so the frames are the same on every run.
  *
  *   var run = Live.start(overlay, levels, arrival, 500)
+ *   var run = Live.replay(overlay, signals, 500)
  *   run.to(2000)   // the frames up to 2 s after the press
  *   run.frames     // [{at, newest, heights}], one per tick
  *
- * `levels` are dBFS, one per 50 ms from the press; `arrival(i)` is when level
- * i reaches the screen, in ms since the press. Levels that arrive together
- * come as one signal, as ioslink's do. The screen shows at `showAt`, the hold's
- * 0.5 s, and then ticks at the intervals it chooses (nextTickMs), or every
- * 100 ms for a screen that doesn't choose. It works with any version of
- * VoiceNoteOverlay.qml that has arm(), begin(), show(), tick(), addLevels(),
- * heights and lag: #19's too, for the pictures of before.
+ * start(): `levels` are dBFS, one per 50 ms from the press; `arrival(i)` is
+ * when level i reaches the screen, in ms since the press. Levels that arrive
+ * together come as one signal, as ioslink's do. replay(): the Levels signals
+ * as a watch sent them, each {at, from, cb}: when it came, its fromMs and its
+ * centibels (voicenote-levels.js' LIVE_0010). Either way the screen shows at
+ * `showAt`, the hold's 0.5 s, and then ticks at the intervals it chooses
+ * (nextTickMs), or every 100 ms for a screen that doesn't choose. It works
+ * with any version of VoiceNoteOverlay.qml that has arm(), begin(), show(),
+ * tick(), addLevels(), heights and lag: #19's too, for the pictures of before.
  */
 .pragma library
 
@@ -24,12 +27,26 @@
 var PRESS = 1793725215000
 
 function start(overlay, levels, arrival, showAt) {
-    var run = {now: 0, frames: [], deliveries: [], shownYet: false, nextTick: showAt, ai: 0}
     var order = []
     for (var i = 0; i < levels.length; i++)
         order.push({at: arrival(i), i: i})
     order.sort(function(a, b) { return a.at - b.at || a.i - b.i })
-    run.order = order
+    // Levels that arrive together, in order, are one signal.
+    var signals = []
+    for (var j = 0; j < order.length; j++) {
+        var last = signals[signals.length - 1]
+        if (last !== undefined && last.at === order[j].at && last.next === order[j].i) {
+            last.cb.push(Math.round(levels[order[j].i] * 100))
+            last.next++
+        } else {
+            signals.push({at: order[j].at, from: 50 * order[j].i, cb: [Math.round(levels[order[j].i] * 100)], next: order[j].i + 1})
+        }
+    }
+    return replay(overlay, signals, showAt)
+}
+
+function replay(overlay, signals, showAt) {
+    var run = {now: 0, frames: [], deliveries: [], shownYet: false, nextTick: showAt, si: 0}
     overlay.slide = false
     overlay.nowMs = function() { return PRESS + run.now }
     overlay.arm()
@@ -46,20 +63,14 @@ function start(overlay, levels, arrival, showAt) {
 
     run.to = function(until) {
         while (true) {
-            var nextArrival = run.ai < order.length ? order[run.ai].at : Infinity
-            if (Math.min(nextArrival, run.nextTick) > until)
+            var nextSignal = run.si < signals.length ? signals[run.si].at : Infinity
+            if (Math.min(nextSignal, run.nextTick) > until)
                 break
-            if (nextArrival <= run.nextTick) {
-                run.now = nextArrival
-                // Levels that arrive together, in order, are one signal.
-                var first = order[run.ai].i, batch = []
-                while (run.ai < order.length && order[run.ai].at === run.now
-                       && order[run.ai].i === first + batch.length) {
-                    batch.push(Math.round(levels[order[run.ai].i] * 100))
-                    run.ai++
-                }
-                run.deliveries.push({at: run.now, from: 50 * first, count: batch.length})
-                overlay.addLevels("LIVE", 50 * first, batch)
+            if (nextSignal <= run.nextTick) {
+                var s = signals[run.si++]
+                run.now = s.at
+                run.deliveries.push({at: s.at, from: s.from, count: s.cb.length})
+                overlay.addLevels("LIVE", s.from, s.cb)
             } else {
                 run.now = run.nextTick
                 if (!run.shownYet) {
@@ -78,7 +89,7 @@ function start(overlay, levels, arrival, showAt) {
 }
 
 // What the frames showed of each bar: bars[k] is the list of its heights, one
-// per frame that drew it, for a screen that says its newest bar.
+// per frame that drew it.
 function barsSeen(frames) {
     var seen = []
     frames.forEach(function(f) {
@@ -105,18 +116,19 @@ function steps(frames) {
     return out
 }
 
-// The arrivals ioslink makes: each 50 ms level as soon as it is heard
-// ("live"), or at its next 100 ms send after the capture's delay, with the
-// bus' ("ioslink"); `hold` keeps every level heard before it until then, as a
-// capture that starts with a backlog, or a screen that gets the first levels
-// at once.
+// The arrivals of a note's levels: each 50 ms level as soon as it is heard
+// ("live"), or as ioslink sends them ("ioslink"): `delay` ms after it was
+// heard, the capture's, at the next of its sends, every 100 ms from 18 ms after
+// the press, as on the watch (LIVE_0010: a level comes 135 to 190 ms after it
+// ended). `hold` keeps every level until then, as a capture that starts with a
+// backlog, or a screen that gets the first levels at once.
 function arrivals(kind, hold, delay) {
-    var lateBy = delay === undefined ? 40 : delay
+    var lateBy = delay === undefined ? 135 : delay
     return function(i) {
         var heard = 50 * (i + 1)
         var at = heard
         if (kind === "ioslink")
-            at = Math.ceil((heard + lateBy) / 100) * 100 + 5
+            at = Math.ceil((heard + lateBy - 18) / 100) * 100 + 18
         if (hold !== undefined && at < hold)
             at = hold
         return at
