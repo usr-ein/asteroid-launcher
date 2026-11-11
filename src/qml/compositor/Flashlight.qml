@@ -13,6 +13,10 @@
  *   gives the screen back to that app; closed any other way, by a swipe for
  *   one, it leaves the app in the background, as a swipe leaves the home. If
  *   the display went off meanwhile, that app is closed, as any app is then.
+ * - It turns itself off offAfter (2 min) after it came on, as toggle() does:
+ *   the user, 2026-11-11, after a forgotten flashlight burned 22% of the
+ *   battery in 27 minutes. A hard limit, which touches don't extend; turning
+ *   it on again, a new window or the open one brought back, starts it again.
  * compositor.qml hands each new and each closed app window to opened() and
  * closed(), and the flashlight's window is the one whose process is
  * asteroid-flashlight, however it was opened.
@@ -41,24 +45,42 @@ QtObject {
     property QtObject window: null
     property QtObject below: null
     property QtObject before: null
-    // Whether toggle() is closing it.
+    // Whether toggle() or the time limit is closing it.
     property bool closing: false
+
+    // How long it stays on, in ms, before it turns itself off.
+    property int offAfter: 2 * 60 * 1000
+
+    property Timer offTimer: Timer {
+        interval: flashlight.offAfter
+        onTriggered: flashlight.turnOff()
+    }
 
     // Whether it shines: open, on top, and the display on.
     readonly property bool lit: window !== null && comp.topmostWindow === window && displayOn
 
     function toggle() {
         if (lit) {
-            closing = true
-            closeWindow(window)
+            turnOff()
             return
         }
         if (!displayOn)
             wake()
-        if (window !== null)
+        if (window !== null) {
             comp.setCurrentWindow(window)
-        else
+            offTimer.restart()
+        } else {
             launch()
+        }
+    }
+
+    // Closes it: the app it opened over comes back (closed()).
+    function turnOff() {
+        offTimer.stop()
+        if (window === null)
+            return
+        closing = true
+        closeWindow(window)
     }
 
     // A new app window: true when it is the flashlight's, which then keeps
@@ -69,6 +91,7 @@ QtObject {
         window = wrapper
         before = comp.topmostWindow
         below = comp.topmostApplicationWindow
+        offTimer.restart()
         return true
     }
 
@@ -90,6 +113,7 @@ QtObject {
         var app = below
         var shown = before
         var restore = closing
+        offTimer.stop()
         window = null
         below = null
         before = null
