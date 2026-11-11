@@ -274,10 +274,14 @@ what they did.
   - Its window is the one whose process's command line names
     asteroid-flashlight, however it was opened.
 
-## The bottom button: a hold records a voice note
+## The bottom button: a long press records a voice note
 
-Holding the bottom button records a voice note for as long as it's held, and
-the screen draws the loudness scrolling by, with the duration (the main repo's
+A long press of the bottom button starts a voice note, which goes on after the
+button is let go; the next press of the bottom button stops it, at that press
+(the user, 2026-11-11: "1 long press starts the voice note recording, and once
+the recording has started, the button no longer needs to be kept pressed. Then,
+a short press of the bottom button while recording ends the recording."). The
+screen draws the loudness scrolling by, with the duration (the main repo's
 docs/prd/voice_notes.md § 8.2 and § 8.4). ioslink records and keeps the note;
 the launcher is the button and the screen. A click and a double-click do what
 they did.
@@ -293,6 +297,11 @@ they did.
     for a click. A press and its release read together after a stall, 0.5 s
     apart, are a hold all the same.
   - A confirmed hold never ends in `singleClicked()` or `doubleClicked()`.
+  - **`captured` and `capturedPressed(pressedAt)`:** while `captured` is true, a
+    press emits `capturedPressed` at once with its own stamp, and nothing else:
+    no hold, no click, no double-click, and its release means nothing.
+    compositor.qml binds it to `voiceNote.recording || voiceOverlay.shown`, so
+    presses during the 2 s of "Saved" are ignored too.
   - A hold ends without its release if its device goes away, or if another press
     comes with the release lost, and it's no click then.
 - **Where a hold records** (the user's rule: "on the main watchface (not in an
@@ -334,7 +343,11 @@ they did.
     ioslink on the bus, nothing at all.
   - **At 0.5 s:** the recording screen shows, `req_display_state_on` if the
     display was off or ambient, the screen is kept on (below), and `Keep(id)`.
-  - **At the release:** `Stop(id, releasedAt)`, or `Cancel(id)` for a click.
+  - **At the release:** `Cancel(id)` for a click; for a note, nothing: it is
+    latched (`VoiceNoteHold.recording`) and goes on.
+  - **At the next press** (`capturedPressed`): `Stop(id, pressedAt)`, at that
+    press, over any screen and with the display off. That press has no other
+    meaning. A refusal fades by itself after 2.5 s.
   - **Arm's answer comes when it comes.** It holds the id that Keep, Stop and
     Cancel need, so they wait for it, in that order. `""` is a refusal (State's
     `last` says why), which the screen shows at 0.5 s; an error from Arm (ioslink
@@ -415,12 +428,12 @@ they did.
       between the two a smoothstep. A quiet room draws as a flat line and speech
       as tall bars with gaps between the words; a room louder than -50 dBFS draws
       as activity, while speech keeps its height;
-    - one line, 26 px, centred on y 372: "Release to save", then from 9:30 "30 s
+    - one line, 26 px, centred on y 372: "Press to save", then from 9:30 "30 s
       left" to "1 s left" in amber, and at the end "Saved · sending", "Saved · 3 on
       watch", "Saved · 18:02 dropped" (amber; "Saved · 3 dropped" for several),
       "10 min limit · saved", "Too short" (the duration dimmed), "Watch storage
       full" and "Microphone unavailable" (amber, before anything records).
-    - More lines for what § 8.4 doesn't cover: "Saving…" between the release
+    - More lines for what § 8.4 doesn't cover: "Saving…" between the stop press
       and State's outcome, "Recorder stopped" (amber) when ioslink leaves the bus
       mid-note, and "Couldn't record" for a failed note with another reason. And
       the early ends that State's `last.reason` tells (PROTOCOL.md § 6.14.4), all
@@ -434,7 +447,7 @@ they did.
     `last`. Nemo.DBus reads both afresh whenever ioslink comes back.
   - **How it ends:** the outcome shows 2 s (2.5 s for a drop), then it fades
     out in 250 ms, and `finished()` lets the hold let go of its leases. If ioslink
-    never says how a released note ended, it goes after 5 s with no claim about
+    never says how a stopped note ended, it goes after 5 s with no claim about
     the note.
   - **Its motion, one bar a tick, a bar drawn once:** a bar is drawn only once
     all its levels are in, and keeps its height from then on; the row moves one

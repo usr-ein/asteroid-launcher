@@ -33,6 +33,10 @@ class QSocketNotifier;
  *   `confirmed` false it was a click. A hold that holdConfirmed() reported
  *   never ends in a singleClicked() or a doubleClicked(), and the second
  *   press of a double-click never starts one.
+ * - captured (bool): while true, a press emits capturedPressed(pressedAt) at
+ *   once, by the event's time, and nothing else: no hold, no click, no
+ *   double-click, and it pairs with nothing. Its release means nothing. A
+ *   confirmed hold's release still ends it with holdEnded(t, true).
  * A hold that ends without its release, because the device went away or
  * another press came with the release lost, ends at that moment, and a hold
  * that was never confirmed is no click then.
@@ -64,6 +68,7 @@ class ButtonDoubleClick : public QObject, public QQmlParserStatus
     Q_PROPERTY(int keyCode READ keyCode WRITE setKeyCode NOTIFY keyCodeChanged)
     Q_PROPERTY(int interval READ interval WRITE setInterval NOTIFY intervalChanged)
     Q_PROPERTY(int longInterval READ longInterval WRITE setLongInterval NOTIFY longIntervalChanged)
+    Q_PROPERTY(bool captured READ captured WRITE setCaptured NOTIFY capturedChanged)
     Q_PROPERTY(QStringList devices READ devices WRITE setDevices NOTIFY devicesChanged)
     Q_PROPERTY(QStringList openDevices READ openDevices NOTIFY openDevicesChanged)
 
@@ -77,6 +82,8 @@ public:
     void setInterval(int interval);
     int longInterval() const;
     void setLongInterval(int longInterval);
+    bool captured() const;
+    void setCaptured(bool captured);
     QStringList devices() const;
     void setDevices(const QStringList &devices);
     // The devices that it reads now.
@@ -89,6 +96,7 @@ signals:
     void keyCodeChanged();
     void intervalChanged();
     void longIntervalChanged();
+    void capturedChanged();
     void devicesChanged();
     void openDevicesChanged();
     void doubleClicked();
@@ -96,6 +104,7 @@ signals:
     void holdStarted(qint64 pressedAt);
     void holdConfirmed();
     void holdEnded(qint64 releasedAt, bool confirmed);
+    void capturedPressed(qint64 pressedAt);
 
 private:
     struct Device {
@@ -131,6 +140,7 @@ private:
     QTimer m_single;
     // Runs from a press to its hold's confirmation, if the button is still down.
     QTimer m_hold;
+    bool m_captured = false;
     bool m_holding = false;
     bool m_confirmed = false;
     int m_holdFd = -1;

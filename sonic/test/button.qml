@@ -75,6 +75,7 @@ Scene {
         onHoldStarted: note("started", pressedAt)
         onHoldConfirmed: note("confirmed")
         onHoldEnded: note("ended", {releasedAt: releasedAt, confirmed: confirmed})
+        onCapturedPressed: note("captured", pressedAt)
         // The flashlight follows the button only at the end.
         property bool wired: false
     }
@@ -468,6 +469,63 @@ Scene {
             })
         },
         function(done) {
+            // `captured`: a press says capturedPressed, with its own stamp, and
+            // nothing else; its release means nothing, held 0.7 s or not.
+            var from = button.events.length
+            check(!button.captured, "a press isn't captured by default")
+            button.captured = true
+            var pressed = test.bootMs()
+            send(key(1, pressed))
+            waitFor(function() { return hasEvent("captured", from) }, 3000, "a captured press is reported at once", function() {
+                expectEqual(lastOf("captured", from).detail, pressed, "with the press' own boot-time stamp")
+                after(800, function() {
+                    expectEqual(reported(from), ["captured"], "held past 0.5 s: no started, no confirmed")
+                    send(key(0, test.bootMs()))
+                    after(700, function() {
+                        expectEqual(reported(from), ["captured"], "and its release: no ended, no single press")
+                        done()
+                    })
+                })
+            })
+        },
+        function(done) {
+            // Two captured presses 150 ms apart are two, and no double-click.
+            var from = button.events.length, clicks = button.clicks
+            var now = test.bootMs()
+            send(key(1, now - 300).concat(key(0, now - 250), key(1, now - 150), key(0, now - 100)))
+            after(900, function() {
+                expectEqual(reported(from), ["captured", "captured"], "a fast second press: captured again, no double-click")
+                expectEqual(button.clicks, clicks, "the flashlight's count is untouched")
+                done()
+            })
+        },
+        function(done) {
+            // A click, then a captured press: the click's own press stood alone,
+            // and the captured one doesn't pair with it. Then, not captured, a
+            // press that follows a captured one at 300 ms is an ordinary new
+            // press.
+            var from = button.events.length, clicks = button.clicks
+            button.captured = false
+            var now = test.bootMs()
+            send(key(1, now - 200).concat(key(0, now - 110)))
+            waitFor(function() { return hasEvent("single", from) }, 3000, "the click stands alone", function() {
+                from = button.events.length
+                button.captured = true
+                var stamp = test.bootMs()
+                send(key(1, stamp).concat(key(0, stamp + 50)))
+                after(300, function() {
+                    button.captured = false
+                    send(key(1, test.bootMs()))
+                    waitFor(function() { return hasEvent("started", from) }, 3000, "a press 300 ms after a captured one", function() {
+                        expectEqual(reported(from), ["captured", "started"], "is an ordinary new press: it starts a hold, and pairs with nothing")
+                        expectEqual(button.clicks, clicks, "no double-click")
+                        send(key(0, test.bootMs()))
+                        waitFor(function() { return hasEvent("single", from) }, 3000, "its release is a click", function() { after(1200, done) })
+                    })
+                })
+            })
+        },
+        function(done) {
             // One that was down for 0.7 s when it arrived: confirmed at once.
             var from = button.events.length, t0 = Date.now()
             send(key(1, test.bootMs() - 700))
@@ -581,10 +639,12 @@ Scene {
                             + " grep -c 'voiceNote.start(pressedAt)' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'onHoldConfirmed: voiceNote.confirm()' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'onHoldEnded: voiceNote.end(releasedAt, confirmed)' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'captured: voiceNote.recording || voiceOverlay.shown' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c 'onCapturedPressed: voiceNote.stop(pressedAt)' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'z: 5$' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'z: 6$' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'z: 5.5$' /src/src/qml/compositor/VoiceNoteOverlay.qml").output.trim().split("\n")
-            expectEqual(wiring, ["1", "1", "1", "1", "1", "1", "1", "1"],
+            expectEqual(wiring, ["1", "1", "1", "1", "1", "1", "1", "1", "1", "1"],
                         "compositor.qml wires the hold to the guard and to voiceNote, and the recording screen is between the gesture area (z 5) and the round mask (z 6)")
             // The lockscreen: the face is the lockscreen for mce, which blanks it 10 s
             // after it came on and allows no blanking pause while it is locked. A

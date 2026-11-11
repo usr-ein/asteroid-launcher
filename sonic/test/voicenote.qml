@@ -13,7 +13,7 @@
  *   last 30 s; saved, with the iPhone and without; a drop past the cache's cap;
  *   the 10 min limit; a note that alone passed the cache's cap, ended early;
  *   a note cut short by a lost microphone, and kept; too short; storage full
- *   and no microphone; the second between the release and the outcome; and
+ *   and no microphone; the second between the stop press and the outcome; and
  *   ioslink gone. Each is a screenshot of the overlay alone at 454 × 454,
  *   checked against the circle 12 px inside the round edge (nothing that isn't
  *   black beyond it), and for what it must show: the red dot or the green
@@ -24,14 +24,15 @@
  *   for 2 s, 2.5 s for a drop, and fades for 250 ms; the countdown.
  * - The hold, with the button's real events through a FIFO, and the stand-ins
  *   answering as ioslink does: the order of what it calls (the keepalive first,
- *   then Arm; the blanking pause and Keep at 0.5 s; Stop at the release) and
+ *   then Arm; the blanking pause and Keep at 0.5 s; the release does nothing, and Stop
+ *   comes at the next press) and
  *   that mce's leases go only once the screen has; a click, which Arms and
  *   Cancels and shows nothing; no ioslink on the bus, which does nothing at
  *   all; a refusal (storage, microphone); an error from Arm; an Arm answered
- *   late, with a click, a hold and a hold released before it; the display off,
+ *   late, with a click, a hold and a note stopped before it; the display off,
  *   which mce turns on; ioslink going away mid-note; its limit at 10:00 with
- *   the button still held; ioslink never answering, ended by the release's
- *   watchdog and by the hard limit; and a second hold over the first's screen.
+ *   the note latched; ioslink never answering, ended by the stop press's
+ *   watchdog and by the hard limit; and a press over the "Saved" screen, which does nothing.
  * - Where a hold records, with compositor.qml's wiring of the hold and of the
  *   rings face's single press, and the scene's state in place of the compositor's:
  *   with the display off, wherever the watch was; with it on or ambient, the
@@ -227,6 +228,8 @@ Scene {
         }
         onHoldConfirmed: hold.confirm()
         onHoldEnded: hold.end(releasedAt, confirmed)
+        captured: hold.recording || overlay.shown
+        onCapturedPressed: hold.stop(pressedAt)
         onSingleClicked: {
             var app = RingsButton.app(desktop.displayOn, desktop.ambient, desktop.homeActive, desktop.panelX, desktop.panelY,
                                       desktop.ringsView)
@@ -478,7 +481,7 @@ Scene {
                       + mce.display + ", " + (mce.paused ? "paused" : "not paused") + ", " + mce.tklock)
                 check(mce.events.every(function(e) { return e.indexOf("blanked") === -1 && e.indexOf("denied") === -1 && e !== "pause ignored" && e !== "pause dropped" }),
                       label + ": mce never blanked it, refused an unlock or ignored a pause: " + mce.events.join(", "))
-                release(test.bootMs())
+                stopPress()
                 settled(function() {
                     feeder.stop()
                     waitFor(function() { return mce.log.indexOf("mce req_tklock_mode_change locked-delay") !== -1 }, 3000, label + ": mce has the lock", function() {
@@ -519,6 +522,14 @@ Scene {
 
     function release(stamp) {
         test.inputEvents(fifo, [[stamp, evKey, keyMenu, 0], [stamp, evSyn, 0, 0]])
+    }
+
+    // What ends a note: the long press' release, which does nothing, then the
+    // press that stops it, and its release.
+    function stopPress() {
+        release(test.bootMs())
+        press(test.bootMs())
+        release(test.bootMs())
     }
 
     function stripped(list) {
@@ -568,7 +579,7 @@ Scene {
             expectEqual([View.breath(0), View.breath(500), View.breath(1000)].map(function(v) { return Math.round(v * 100) / 100 }),
                         [1, 0.35, 1], "the dot breathes once a second")
             expectEqual([View.recordingLine(42000), View.recordingLine(569000), View.recordingLine(570000), View.recordingLine(581000), View.recordingLine(599500), View.recordingLine(600000)],
-                        [{text: "Release to save", amber: false}, {text: "Release to save", amber: false},
+                        [{text: "Press to save", amber: false}, {text: "Press to save", amber: false},
                          {text: "30 s left", amber: true}, {text: "19 s left", amber: true}, {text: "1 s left", amber: true},
                          {text: "Saving…", amber: false}],
                         "the line says \"Release to save\", and from 9:30 the seconds left, in amber")
@@ -833,7 +844,7 @@ Scene {
         // The screens.
         function(done) {
             recording("N1", 42000, function() {
-                screen("voicenote-recording", "Recording, 0:42", {duration: "0:42", line: "Release to save"},
+                screen("voicenote-recording", "Recording, 0:42", {duration: "0:42", line: "Press to save"},
                        {live: true, bars: "red"}, done)
             })
         },
@@ -862,7 +873,7 @@ Scene {
                     desktop.program = null
                     var seconds = Math.floor(m.at / 1000)
                     expectEqual({duration: overlay.durationText, line: overlay.lineText},
-                                {duration: "0:" + (seconds < 10 ? "0" : "") + seconds, line: "Release to save"}, name + ": the screen's words")
+                                {duration: "0:" + (seconds < 10 ? "0" : "") + seconds, line: "Press to save"}, name + ": the screen's words")
                     shot(name, function() {
                         look(name, {live: true, bars: m.bars, tall: m.tall})
                         sheetNote.files = sheetNote.files.concat([shots + "/" + name + ".png"])
@@ -881,9 +892,9 @@ Scene {
         },
         function(done) {
             recording("N3", 42000, function() {
-                overlay.released(42000)
+                overlay.stopPressed(42000)
                 after(300, function() {
-                    screen("voicenote-saving", "Released, before the outcome", {duration: "0:42", line: "Saving…"},
+                    screen("voicenote-saving", "Stopped, before the outcome", {duration: "0:42", line: "Saving…"},
                            {bars: "grey"}, done)
                 })
             })
@@ -941,7 +952,7 @@ Scene {
         function(done) {
             recording("N7", 800, function() {
                 ended({id: "N7", outcome: "tooShort", durationMs: 800, dropped: [], reason: ""}, {}, function() {
-                    screen("voicenote-too-short", "Released under 1 s: too short", {duration: "0:00", line: "Too short"},
+                    screen("voicenote-too-short", "Stopped within 1 s: too short", {duration: "0:00", line: "Too short"},
                            {bars: "flat", dim: true}, done)
                 })
             })
@@ -1043,13 +1054,21 @@ Scene {
                                 expectEqual(steps, 0, "with the slide off the row steps and never moves between")
                                 overlay.slide = true
                                 keep("voicenote-live", "A hold, live", function() {
+                                    // The release alone: the note is latched, and goes on.
                                     release(test.bootMs())
-                                    waitFor(function() { return overlay.phase === "ended" }, 5000, "the release ends the note", function() {
+                                    after(700, function() {
+                                    expectEqual({phase: overlay.phase, recording: hold.recording, captured: button.captured, calls: stripped(voicenotes.calls)},
+                                                {phase: "live", recording: true, captured: true, calls: ["Arm <time>", "Keep NOTE"]},
+                                                "the release sends no Stop: the note goes on recording, and the button is captured")
+                                    check(/^0:0[12]$/.test(overlay.durationText) || /^0:0[3-9]$/.test(overlay.durationText), "and the duration still runs: " + overlay.durationText)
+                                    press(test.bootMs())
+                                    release(test.bootMs())
+                                    waitFor(function() { return overlay.phase === "ended" }, 5000, "the next press ends the note", function() {
                                         var endedAt = Date.now()
                                         check(/^0:0[1-3]$/.test(overlay.durationText), "the duration stands at the note's own: " + overlay.durationText)
                                         expectEqual(overlay.lineText, "Saved · sending", "saved, the iPhone in reach")
                                         waitFor(function() { return voicenotes.calls.length >= 3 }, 3000, "ioslink has Stop", function() {
-                                            expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "Stop came with the release")
+                                            expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "Stop came with the press")
                                             check(hold.keepaliveHeld && hold.blankingPaused && hold.screenKept && mce.tklock === "unlocked" && mce.paused,
                                                   "mce's keepalive and blanking pause, and the touch lock unlocked, are held while the screen shows")
                                             settled(function() {
@@ -1070,6 +1089,7 @@ Scene {
                                                 })
                                             })
                                         })
+                                    })
                                     })
                                 })
                             })
@@ -1161,7 +1181,7 @@ Scene {
                                 "mce had the lock and dropped the pause, then the hold's unlock, then its pause")
                     after(1800, function() {
                         check(mce.display === "on", "and the display stays on, past the lockscreen's blank: " + mce.display)
-                        release(test.bootMs())
+                        stopPress()
                         settled(function() {
                             feeder.stop()
                             mce.lockBlankMs = 0
@@ -1195,7 +1215,7 @@ Scene {
                     var n = unlocks()
                     after(1000, function() {
                         expectEqual(unlocks(), n, "and no more unlocks once unlocked")
-                        release(test.bootMs())
+                        stopPress()
                         settled(function() {
                             feeder.stop()
                             hold.unlockRetryMs = 1000
@@ -1218,7 +1238,7 @@ Scene {
             function pauses() { return mce.calls.filter(function(c) { return c === "req_display_blanking_pause" }).length }
             function asks() { return mce.calls.filter(function(c) { return c === "get_tklock_mode" }).length }
             waitFor(function() { return pauses() >= 3 && asks() >= 2 }, 5000, "the pause is renewed, and the touch lock asked about", function() {
-                release(test.bootMs())
+                stopPress()
                 settled(function() {
                     feeder.stop()
                     waitFor(function() { return mce.calls.indexOf("req_tklock_mode_change locked-delay") !== -1 }, 3000, "mce has the lock", function() {
@@ -1247,14 +1267,14 @@ Scene {
                 desktop.panelX = 1
                 desktop.panelX = 0
                 expectEqual(desktop.locks, [], "the face left and come back to, meanwhile: the lockscreen isn't touched")
-                release(test.bootMs())
+                stopPress()
                 settled(function() {
                     relocked("the face in front")
                     reset()
                     press(test.bootMs())
                     waitFor(function() { return mce.paused }, 5000, "another note holds the pause", function() {
                         desktop.panelY = 1
-                        release(test.bootMs())
+                        stopPress()
                         settled(function() {
                             feeder.stop()
                             check(mce.tklock === "unlocked" && desktop.trace.indexOf("mce req_tklock_mode_change locked-delay") === -1,
@@ -1372,9 +1392,14 @@ Scene {
             waitFor(function() { return overlay.phase === "refused" }, 5000, "a refusal shows at 0.5 s", function() {
                 expectEqual({duration: overlay.durationText, line: overlay.lineText, amber: overlay.lineAmber},
                             {duration: "0:00", line: "Watch storage full", amber: true}, "storage full, in amber")
+                var refusedAt = Date.now()
                 after(400, function() {
-                    release(test.bootMs())
+                    // The button is still down, and is never released: it fades by itself.
+                    check(!hold.recording, "a refusal is no recording")
                     settled(function() {
+                        var shown = Date.now() - refusedAt
+                        check(shown >= 2400 && shown < 4500, "a refusal shows 2.5 s, then fades by itself, the button still down: " + shown + " ms")
+                        release(test.bootMs())
                         expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause", stopCall,
                                                               "mce req_display_cancel_blanking_pause", "mce req_tklock_mode_change locked-delay"],
                                     "no Keep, no Stop and no Cancel for no note; the screen kept on, the leases ended with it, and the face locked again")
@@ -1427,20 +1452,26 @@ Scene {
             reset()
             desktop.phaseLog = []
             press(test.bootMs())
-            after(1100, function() {
+            // The release, then the press that stops it before Arm's answer
+            // (at 1.3 s). One timer serves after() and waitFor(): they nest.
+            after(900, function() {
                 release(test.bootMs())
-                waitFor(function() { return voicenotes.calls.length >= 3 }, 5000, "ioslink has Keep and Stop, after Arm's answer", function() {
-                    expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"],
-                                "a hold released before Arm's answer: Keep, then Stop, when it comes")
-                    expectEqual(stripped(desktop.trace).slice(0, 6), [startCall, "ioslink Arm <time>", "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause",
-                                                                       "ioslink Keep NOTE", "ioslink Stop NOTE <time>"],
-                                "in the order it sent them: the screen kept on at 0.5 s, Keep and Stop with Arm's answer")
-                    waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
-                        expectEqual(overlay.lineText, "Saved · sending", "saved: the hold lasted 1.1 s")
-                        voicenotes.armDelay = 0
-                        overlay.farewellMs = 600
-                        overlay.fadeMs = 100
-                        settled(done)
+                after(200, function() {
+                    press(test.bootMs())
+                    release(test.bootMs())
+                    waitFor(function() { return voicenotes.calls.length >= 3 }, 5000, "ioslink has Keep and Stop, after Arm's answer", function() {
+                        expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"],
+                                    "a stop press before Arm's answer: Keep, then Stop, when it comes")
+                        expectEqual(stripped(desktop.trace).slice(0, 6), [startCall, "ioslink Arm <time>", "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause",
+                                                                           "ioslink Keep NOTE", "ioslink Stop NOTE <time>"],
+                                    "in the order it sent them: the screen kept on at 0.5 s, Keep and Stop with Arm's answer")
+                        waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
+                            expectEqual(overlay.lineText, "Saved · sending", "saved: the note lasted 1.1 s")
+                            voicenotes.armDelay = 0
+                            overlay.farewellMs = 600
+                            overlay.fadeMs = 100
+                            settled(done)
+                        })
                     })
                 })
             })
@@ -1453,7 +1484,7 @@ Scene {
             press(test.bootMs())
             waitFor(function() { return overlay.phase === "live" && mce.paused }, 5000, "the screen shows, and mce holds the pause", function() {
                 after(300, function() {
-                    release(test.bootMs())
+                    stopPress()
                     settled(function() {
                         expectEqual(stripped(desktop.trace), [startCall, "ioslink Arm <time>", "mce req_display_state_on", "ioslink Keep NOTE",
                                                               "mce req_tklock_mode_change unlocked", "mce req_display_blanking_pause",
@@ -1479,7 +1510,7 @@ Scene {
             press(test.bootMs())
             waitFor(function() { return overlay.phase === "live" }, 5000, "the screen shows", function() {
                 after(400, function() {
-                    release(test.bootMs())
+                    stopPress()
                     waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
                         expectEqual(overlay.lineText, "Saved · 08:02 dropped", "the drop, in amber: " + overlay.lineAmber)
                         settled(function() {
@@ -1541,27 +1572,28 @@ Scene {
             })
         },
 
-        // The 10:00 limit, with the button still held: ioslink's own stop.
+        // The 10:00 limit, the note latched: ioslink's own stop, at any hour.
         function(done) {
             reset()
             desktop.phaseLog = []
             press(test.bootMs())
             waitFor(function() { return overlay.phase === "live" }, 5000, "the screen shows", function() {
                 after(300, function() {
+                    release(test.bootMs())
                     voicenotes.limit()
                     waitFor(function() { return overlay.phase === "ended" }, 5000, "ioslink stops the note itself", function() {
                         expectEqual({duration: overlay.durationText, line: overlay.lineText}, {duration: "10:00", line: "10 min limit · saved"}, "the limit")
                         settled(function() {
-                            check(true, "the leases end with the screen though the button is still down")
+                            check(true, "the leases end with the screen")
                             relocked("the 10:00 limit")
+                            expectEqual({recording: hold.recording, captured: button.captured}, {recording: false, captured: false}, "and the button is free again")
+                            press(test.bootMs())
                             release(test.bootMs())
-                            waitFor(function() { return voicenotes.calls.length >= 3 }, 5000, "the release still calls Stop", function() {
-                                expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], "the release still calls Stop, past the note's own end")
-                                after(300, function() {
-                                    expectEqual(voicenotes.errors, [], "ioslink takes it with no error, as it does for the note that ended last")
-                                    expectEqual(overlay.phase, "idle", "and the screen stays away")
-                                    done()
-                                })
+                            after(600, function() {
+                                expectEqual(stripped(voicenotes.calls).slice(0, 2), ["Arm <time>", "Keep NOTE"], "the note's own calls")
+                                check(stripped(voicenotes.calls).indexOf("Stop NOTE <time>") === -1, "no Stop for a note that ended itself")
+                                expectEqual(voicenotes.errors, [], "and no error")
+                                done()
                             })
                         })
                     })
@@ -1589,7 +1621,7 @@ Scene {
             press(test.bootMs())
             waitFor(function() { return overlay.phase === "live" }, 5000, "the screen shows", function() {
                 after(300, function() {
-                    release(test.bootMs())
+                    stopPress()
                     var at = Date.now()
                     waitFor(function() { return overlay.phase === "saving" }, 3000, "the release freezes the screen", function() {
                         expectEqual(overlay.lineText, "Saving…", "the line, until ioslink says")
@@ -1632,8 +1664,9 @@ Scene {
             })
         },
 
-        // A second hold while the first's screen still shows: the screen is cut
-        // at the press, and the leases go with the new hold, a click.
+        // A press while the "Saved" screen shows is ignored (decision 4): no new
+        // note, no click, no flashlight; and once it has faded, a press is an
+        // ordinary one again.
         function(done) {
             overlay.farewellMs = 2000
             overlay.fadeMs = 250
@@ -1641,20 +1674,37 @@ Scene {
             desktop.phaseLog = []
             press(test.bootMs())
             waitFor(function() { return overlay.phase === "live" }, 5000, "the screen shows", function() {
-                release(test.bootMs())
+                stopPress()
                 waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
                     check(hold.keepaliveHeld, "the first screen holds the leases")
+                    var calls = stripped(voicenotes.calls).length
                     press(test.bootMs())
                     after(90, function() {
                         release(test.bootMs())
-                        waitFor(function() { return overlay.phase === "idle" && !hold.keepaliveHeld }, 3000, "the second press cut the screen, and the click let go", function() {
-                            expectEqual(desktop.phaseLog.map(function(p) { return p.phase }), ["armed", "live", "saving", "ended", "armed", "idle"],
-                                        "the phases: the first note's, then armed again and idle at once, with no second fade")
-                            expectEqual(stripped(desktop.trace).filter(function(c) { return c === startCall || c === stopCall }), [startCall, stopCall],
-                                        "one keepalive for both, ended once")
-                            overlay.farewellMs = 600
-                            overlay.fadeMs = 100
-                            done()
+                        after(700, function() {
+                            expectEqual({phase: overlay.phase, calls: stripped(voicenotes.calls).length, opened: desktop.opened},
+                                        {phase: "ended", calls: calls, opened: []}, "the press on the Saved screen did nothing: no Arm, no cut, no app")
+                            check(hold.keepaliveHeld, "and the leases are held still")
+                            settled(function() {
+                                expectEqual(desktop.phaseLog.map(function(p) { return p.phase }), ["armed", "live", "saving", "ended", "idle"],
+                                            "the phases: the first note's alone")
+                                expectEqual(stripped(desktop.trace).filter(function(c) { return c === startCall || c === stopCall }), [startCall, stopCall],
+                                            "one keepalive, ended once")
+                                after(450, function() {
+                                    desktop.phaseLog = []
+                                    reset()
+                                    press(test.bootMs())
+                                    after(90, function() {
+                                        release(test.bootMs())
+                                        waitFor(function() { return voicenotes.calls.length >= 2 }, 3000, "a press once it has faded is a click again", function() {
+                                            expectEqual(stripped(voicenotes.calls), ["Arm <time>", "Cancel NOTE"], "Arm, then Cancel")
+                                            overlay.farewellMs = 600
+                                            overlay.fadeMs = 100
+                                            settled(done)
+                                        })
+                                    })
+                                })
+                            })
                         })
                     })
                 })
@@ -1701,7 +1751,7 @@ Scene {
             press(test.bootMs())
             waitFor(function() { return overlay.phase === "live" }, 5000, "a long press on the rings face records", function() {
                 after(400, function() {
-                    release(test.bootMs())
+                    stopPress()
                     waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
                         after(800, function() {
                             expectEqual(desktop.opened, [], "and opens no app, at the release or after it")
@@ -1755,7 +1805,7 @@ Scene {
                 press(test.bootMs())
                 waitFor(function() { return overlay.phase === "live" }, 5000, "a hold records " + c.label, function() {
                     after(300, function() {
-                        release(test.bootMs())
+                        stopPress()
                         waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
                             expectEqual({calls: stripped(voicenotes.calls), opened: desktop.opened},
                                         {calls: ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], opened: []},
@@ -1802,7 +1852,7 @@ Scene {
                 waitFor(function() { return overlay.phase === "live" }, 5000, "with the display off, a hold records on " + c.where, function() {
                     check(overlay.shown, "the screen is up, over " + c.where)
                     after(300, function() {
-                        release(test.bootMs())
+                        stopPress()
                         waitFor(function() { return overlay.phase === "ended" }, 5000, "the note ends", function() {
                             expectEqual({calls: stripped(voicenotes.calls), opened: desktop.opened},
                                         {calls: ["Arm <time>", "Keep NOTE", "Stop NOTE <time>"], opened: []},
