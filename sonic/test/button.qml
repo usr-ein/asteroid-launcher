@@ -32,7 +32,11 @@
  *   line names asteroid-flashlight, read by the launcher's AppLauncher. It
  *   checks the flashlight on and off from the home, over an app that stays,
  *   with the display off, the display going off, another app opening, a
- *   swipe, and from the quick panel.
+ *   swipe, and from the quick panel. And that it turns itself off after
+ *   offAfter, 2 min as compositor.qml leaves it (shortened here): from the
+ *   home, over an app that comes back, opened from the quick panel; the limit
+ *   cancelled when it's turned off earlier, and started again when it's
+ *   turned on again.
  * No screenshot: nothing here draws.
  */
 import QtQuick 2.9
@@ -233,6 +237,9 @@ Scene {
             comp.displayOn = true
         }
     }
+
+    // Flashlight.qml as compositor.qml makes it: its time limit untouched.
+    Flashlight { id: stockFlashlight }
 
     function reset() {
         closedNames = []
@@ -804,6 +811,106 @@ Scene {
                       "it leaves the home, and the timer app in the background, the app that the next replaces")
                 flashlight.closeWindow(timer)
                 settle(done)
+            })
+        },
+
+        // It turns itself off: 2 min as compositor.qml has it, shortened here.
+        function(done) {
+            expectEqual(stockFlashlight.offAfter, 120000, "Flashlight.qml turns itself off after 2 min")
+            var set = sh("sed -n '/^    Flashlight {/,/^    }/p' /src/src/qml/compositor/compositor.qml | grep -c offAfter; true").output.trim()
+            expectEqual(set, "0", "and compositor.qml leaves it at that")
+            reset()
+            flashlight.offAfter = 600
+            flashlight.toggle()
+            after(400, function() {
+                check(flashlight.lit, "from the home: it shines")
+                expectEqual(closedNames, [], "before the limit, nothing closes")
+                after(400, function() {
+                    settle(function() {
+                        expectEqual(closedNames, ["flashlight"], "at the limit, it closes the flashlight, and nothing else")
+                        check(comp.topmostWindow === home && !flashlight.lit && flashlight.window === null,
+                              "back to the home, as toggle() leaves it")
+                        done()
+                    })
+                })
+            })
+        },
+        // Over an app: the app comes back, as when toggle() turns it off.
+        function(done) {
+            reset()
+            var timer = open("timer", false)
+            flashlight.toggle()
+            after(1000, function() {
+                settle(function() {
+                    expectEqual(closedNames, ["flashlight"], "over the timer app, at the limit: only the flashlight closes")
+                    check(comp.topmostWindow === timer && timer.visible, "and the timer app is back on the screen")
+                    flashlight.closeWindow(timer)
+                    settle(done)
+                })
+            })
+        },
+        // Opened from the quick panel: the same limit.
+        function(done) {
+            reset()
+            open("flashlight", true)
+            check(flashlight.lit, "opened from the quick panel, it shines")
+            after(1000, function() {
+                settle(function() {
+                    expectEqual(closedNames, ["flashlight"], "and it closes at the limit too")
+                    check(comp.topmostWindow === home, "back to the home")
+                    done()
+                })
+            })
+        },
+        // Turned off earlier: the limit is cancelled.
+        function(done) {
+            reset()
+            flashlight.toggle()
+            after(300, function() {
+                flashlight.toggle()
+                settle(function() {
+                    expectEqual(closedNames, ["flashlight"], "turned off before the limit")
+                    check(!flashlight.offTimer.running, "the limit is cancelled")
+                    var timer = open("timer", false)
+                    after(800, function() {
+                        settle(function() {
+                            expectEqual(closedNames, ["flashlight"], "past the limit, nothing else closes")
+                            check(comp.topmostWindow === timer, "the app opened after stays")
+                            flashlight.closeWindow(timer)
+                            settle(done)
+                        })
+                    })
+                })
+            })
+        },
+        // Turned on again: a new window, or the open one brought back after
+        // the display went off, starts the limit again.
+        function(done) {
+            reset()
+            flashlight.toggle()
+            after(400, function() {
+                flashlight.toggle()
+                settle(function() {
+                    flashlight.toggle()
+                    after(400, function() {
+                        check(flashlight.lit, "on again: still on past the first one's limit")
+                        // The power button, then the button again.
+                        comp.displayOn = false
+                        flashlight.toggle()
+                        after(400, function() {
+                            check(flashlight.lit, "brought back: still on past the second one's limit")
+                            expectEqual(closedNames, ["flashlight"], "only the first one closed so far")
+                            after(400, function() {
+                                settle(function() {
+                                    expectEqual(closedNames, ["flashlight", "flashlight"], "then the limit closes it")
+                                    check(comp.topmostWindow === home, "back to the home")
+                                    flashlight.offAfter = stockFlashlight.offAfter
+                                    done()
+                                })
+                            })
+                        })
+                    })
+                })
             })
         },
 
