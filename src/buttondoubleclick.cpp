@@ -97,6 +97,19 @@ void ButtonDoubleClick::setLongInterval(int longInterval)
     emit longIntervalChanged();
 }
 
+bool ButtonDoubleClick::captured() const
+{
+    return m_captured;
+}
+
+void ButtonDoubleClick::setCaptured(bool captured)
+{
+    if (captured == m_captured)
+        return;
+    m_captured = captured;
+    emit capturedChanged();
+}
+
 QStringList ButtonDoubleClick::devices() const
 {
     return m_devices;
@@ -243,6 +256,14 @@ void ButtonDoubleClick::pressed(qint64 msec, int fd)
     // The release of the press before never came: it ended here.
     if (m_holding)
         endHold(msec);
+
+    if (m_captured) {
+        // The press has this one meaning: it pairs with nothing, starts no
+        // hold, and its release finds no hold to end.
+        m_lastPress = -1;
+        emit capturedPressed(msec);
+        return;
+    }
 
     if (m_lastPress >= 0 && msec >= m_lastPress && msec - m_lastPress <= m_interval) {
         // The second press of a double-click: it starts no hold, and its

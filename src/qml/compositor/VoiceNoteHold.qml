@@ -1,9 +1,9 @@
 /*
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * A hold of the bottom button, as a voice note (the main repo's
+ * A long press of the bottom button, as a voice note (the main repo's
  * docs/prd/voice_notes.md § 8.2): what compositor.qml does at each step of
- * ButtonDoubleClick's hold. Like Flashlight.qml, it is a piece of the
+ * ButtonDoubleClick's hold, and at the press that stops the note. Like Flashlight.qml, it is a piece of the
  * compositor that the tests run with stand-ins: mce and ioslink are functions
  * it is given.
  *
@@ -14,8 +14,12 @@
  * - confirm(), 0.5 s into the hold: the recording screen shows at once, the
  *   display comes on if it wasn't, the screen is kept on (below), and Keep(id)
  *   tells ioslink that the note is real.
- * - end(releasedAt, confirmed), at the release: Stop(id, releasedAt) for a
- *   note, Cancel(id) for a click.
+ * - end(releasedAt, confirmed), at the release: Cancel(id) for a click. For a
+ *   note nothing: it is latched, and goes on recording (`recording`).
+ * - stop(pressedAt), at the next press of the bottom button, which
+ *   ButtonDoubleClick gives as capturedPressed while `recording` or the screen
+ *   is up: Stop(id, pressedAt), at that press, and that press means nothing
+ *   else.
  * Arm's answer comes when it comes, and holds the id, which Keep, Stop and
  * Cancel need: they wait for it, in that order. An answer of "" is a refusal
  * (State says why: no microphone, no room), which the screen shows; an error
@@ -91,10 +95,16 @@ Item {
     readonly property string session: "sonic-launcher-voicenote"
 
     // The latest hold: {pressedAt, id, replied, refused, failed, confirmed,
-    // ended, releasedAt, kept, sent, over}. Arm's answer comes to its own.
+    // ended, stopped, stoppedAt, kept, sent, over}. Arm's answer comes to its own.
     property var current: null
     // Whether a press that start() took is still down.
     property bool holding: false
+    // Whether a note is latched and records: from confirm() until the press that
+    // stops it, or until the note is over some other way (a refusal, a failure,
+    // ioslink gone, the 10:00 limit, the hard limit), which the screen's phase
+    // says. compositor.qml captures the button's presses while it is true, and
+    // while the screen is up.
+    property bool recording: false
     property bool keepaliveHeld: false
     property bool blankingPaused: false
     property bool periodAsked: false
@@ -121,7 +131,7 @@ Item {
         if (!ioslinkUp || overlay === null)
             return
         var h = {pressedAt: pressedAt, id: "", replied: false, refused: false, failed: false,
-                 confirmed: false, ended: false, releasedAt: 0, kept: false, sent: false, over: false,
+                 confirmed: false, ended: false, stopped: false, stoppedAt: 0, kept: false, sent: false, over: false,
                  refusalShown: false}
         current = h
         holding = true
@@ -153,6 +163,7 @@ Item {
         if (!displayLit)
             callMce("req_display_state_on", undefined)
         keepScreen()
+        recording = overlay.phase === "live"
         advance(h)
     }
 
@@ -198,15 +209,28 @@ Item {
         }
     }
 
+    // The press is up. A note goes on recording; a click is Cancelled.
     function end(releasedAt, confirmed) {
         var h = current
         if (!holding || h === null)
             return
         holding = false
+        if (h.confirmed)
+            return
         h.ended = true
-        h.releasedAt = releasedAt
-        if (h.confirmed && !h.refused && !h.failed && !h.over)
-            overlay.released(releasedAt - h.pressedAt)
+        advance(h)
+    }
+
+    // The press that stops the note, at its own boot-time stamp. Nothing if no
+    // note records: a refusal, a failure or the screen of an ended note.
+    function stop(pressedAt) {
+        var h = current
+        if (!recording || h === null || !h.confirmed || h.stopped || h.over || h.refused || h.failed)
+            return
+        recording = false
+        h.stopped = true
+        h.stoppedAt = pressedAt
+        overlay.stopPressed(Math.max(0, pressedAt - h.pressedAt))
         advance(h)
     }
 
@@ -235,10 +259,10 @@ Item {
                 h.kept = true
                 fire("Keep", [{type: "s", value: h.id}])
             }
-            if (h.ended && !h.sent) {
+            if ((h.stopped || h.ended) && !h.sent) {
                 h.sent = true
-                if (h.confirmed)
-                    fire("Stop", [{type: "s", value: h.id}, {type: "x", value: h.releasedAt}])
+                if (h.stopped)
+                    fire("Stop", [{type: "s", value: h.id}, {type: "x", value: h.stoppedAt}])
                 else
                     fire("Cancel", [{type: "s", value: h.id}])
             }
@@ -269,8 +293,11 @@ Item {
         h.over = true
         if (h !== current)
             return
-        // A screen that was never shown has nothing to wait for.
+        // A screen that was never shown has nothing to wait for; one that was
+        // shown for a note that never was goes now, as nothing will stop it.
         overlay.disarm()
+        if (overlay.phase === "live")
+            overlay.hide()
         settle()
     }
 
@@ -353,6 +380,11 @@ Item {
         target: hold.overlay
         ignoreUnknownSignals: true
         function onFinished() { hold.overlayFinished() }
+        // Anything but live is the end of the recording, whatever ended it.
+        function onPhaseChanged() {
+            if (hold.overlay.phase !== "live")
+                hold.recording = false
+        }
     }
 
     Timer {
@@ -394,6 +426,7 @@ Item {
                 hold.overlay.hide()
             if (hold.current !== null)
                 hold.current.over = true
+            hold.recording = false
             hold.settle()
         }
     }

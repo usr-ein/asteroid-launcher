@@ -188,7 +188,7 @@ function breath(elapsedMs) {
     return 0.35 + 0.65 * (0.5 + 0.5 * Math.cos(2 * Math.PI * turn))
 }
 
-// The line while the note records: "Release to save", and from 9:30 the
+// The line while the note records: "Press to save", and from 9:30 the
 // seconds left, in amber.
 function recordingLine(elapsedMs) {
     var left = Math.ceil((LIMIT_MS - elapsedMs) / 1000)
@@ -196,7 +196,7 @@ function recordingLine(elapsedMs) {
         return {text: "Saving…", amber: false}
     if (left <= COUNTDOWN_S)
         return {text: left + " s left", amber: true}
-    return {text: "Release to save", amber: false}
+    return {text: "Press to save", amber: false}
 }
 
 // Which notes were dropped, for "Saved · ... dropped": the time of the one,

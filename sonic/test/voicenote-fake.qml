@@ -85,6 +85,8 @@ Scene {
         onHoldStarted: hold.start(pressedAt)
         onHoldConfirmed: hold.confirm()
         onHoldEnded: hold.end(releasedAt, confirmed)
+        captured: hold.recording || overlay.shown
+        onCapturedPressed: hold.stop(pressedAt)
     }
 
     Connections {
@@ -155,6 +157,9 @@ Scene {
         press(stamp)
         waitFor(function() { return overlay.phase === "live" || overlay.phase === "refused" }, 5000, "the screen shows", function() {
             after(ms, function() {
+                // The release of the long press, then the press that stops it.
+                release(test.bootMs())
+                press(test.bootMs())
                 release(test.bootMs())
                 waitFor(function() { return overlay.phase === "ended" || overlay.phase === "refused" }, 8000, "the screen has the outcome", function() {
                     expectEqual(overlay.lineText, expectedLine, "the line against the fake's State")

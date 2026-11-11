@@ -2,10 +2,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The recording screen of a voice note, drawn over whatever is on the watch
- * while the bottom button is held (the main repo's docs/prd/voice_notes.md
- * § 8.4): black, a red dot that breathes, the duration in light 104 px digits,
- * the loudness scrolling by as Voice Memos draws it, and one line. No
- * buttons, no touch: the hold is the only control. It sits in compositor.qml
+ * while a note records, from a long press of the bottom button to the next press
+ * of it (the main repo's docs/prd/voice_notes.md § 8.4): black, a red dot that
+ * breathes, the duration in light 104 px digits, the loudness scrolling by as
+ * Voice Memos draws it, and one line. No buttons, no touch: the button is the
+ * only control. It sits in compositor.qml
  * between the gesture area (z 5) and the round mask (z 6), is created at start
  * and hidden, and has no Canvas: about 30 rectangles of the scene graph.
  *
@@ -23,8 +24,8 @@
  *   disarm(): it was a click.
  * - begin(id): ioslink's answer to Arm, the note's id.
  * - show(): the hold passed 0.5 s. It is there at once, with no fade.
- * - released(durationMs): the release. The waveform freezes, and the line
- *   says "Saving…" until State has the outcome.
+ * - stopPressed(durationMs): the press that stops the note. The waveform
+ *   freezes, and the line says "Saving…" until State has the outcome.
  * - refused(): Arm answered "": State says why, and that shows.
  * It ends by itself: the outcome shows for 2 s (2.5 s when notes were
  * dropped), the screen fades out in 250 ms, and finished() says it's done.
@@ -70,15 +71,17 @@ Item {
     property int holdMs: 500
     // How long the end shows, and how long it fades.
     property int farewellMs: 2000
+    // A refusal fades by itself, after this.
+    property int refusalMs: 2500
     property int dropFarewellMs: 2500
     property int fadeMs: 250
-    // How long after the release ioslink may take to say how the note ended.
+    // How long after the stop press ioslink may take to say how the note ended.
     property int savingMs: 5000
     // The clock, which the tests hold still.
     property var nowMs: function() { return Date.now() }
 
     // idle: hidden, nothing under way; armed: hidden, the levels gather;
-    // live: the note records; saving: released, State yet to say how it ended;
+    // live: the note records; saving: stopped, State yet to say how it ended;
     // ended: the outcome; refused: Arm said no, and why; stopped: ioslink
     // went away.
     property string phase: "idle"
@@ -161,7 +164,7 @@ Item {
         tick()
     }
 
-    function released(durationMs) {
+    function stopPressed(durationMs) {
         if (phase !== "live")
             return
         elapsed = durationMs
@@ -184,7 +187,7 @@ Item {
         // The reason is State's, when it's a refusal that it holds: any other
         // `last` is an older note's.
         var last = info.last && info.last.outcome === "failed" ? info.last : {outcome: "failed", reason: ""}
-        farewell(View.ending(last, info.onWatch, info.connected), farewellMs)
+        farewell(View.ending(last, info.onWatch, info.connected), refusalMs)
         phase = "refused"
     }
 
@@ -347,7 +350,7 @@ Item {
         onTriggered: fadeAnimation.start()
     }
 
-    // The release, and no word from ioslink in time: the screen goes, with no
+    // The stop press, and no word from ioslink in time: the screen goes, with no
     // claim about the note.
     Timer {
         id: savingTimer
