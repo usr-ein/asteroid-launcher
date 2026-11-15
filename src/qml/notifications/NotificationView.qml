@@ -31,11 +31,8 @@ import QtQuick 2.9
 import org.asteroid.controls 1.0
 
 // The view plays no sound: lipstick plays each notification's own
-// x-nemo-feedback event through ngfd once. ioslink picks that event from the
-// watch's Focus, at the notification's level: Sound and vibration plays
-// sonic_notif_sound (sonic_notif_sound_strong for an important one),
-// Vibration notif_normal (notif_strong), Silent and Hidden nothing. No profile
-// decides: ioslink keeps profiled pinned to general.
+// x-nemo-feedback event through ngfd once, and the active profile decides
+// whether it sounds or vibrates.
 MouseArea {
     id: view
 
