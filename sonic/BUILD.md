@@ -746,6 +746,15 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     <fork>/sonic/out/test/fakeioslink ./cmd/fakeioslink` in the main repo's
     `ioslink/`, then `sonic/test/test.sh voicenote-fake`. Without it the scene
     says so, and passes.
+  - `focus-fake`, on request, not in the full run: the quick panel's Focus
+    against the main repo's contract fake, `fakeioslink focus` (built as for
+    `voicenote-fake`, above), which serves Focus through godbus and busapi as
+    ioslink does. It checks that Nemo.DBus reads what godbus exports: `State`
+    through `GetAll`, field by field, its `PropertiesChanged` after `Pick`
+    and `Follow` through the picker, `Pick("")` for No Focus, and `NotFound`
+    for an id the table lacks; then the fake's scenarios `picked`, `notable`
+    and `nothing`, and the fake gone. Without the fake the scene says so, and
+    passes.
   - `voicenote-docs`, on request, not in the full run: the pictures of
     `sonic/docs/`, the recording screen live on the user's note of 22:30 as
     ioslink sends its levels on the watch: `voicenote-docs-first2s.png`, the
