@@ -40,6 +40,15 @@ MouseArea {
     property QtObject notification
     property bool forbidTop: column.y < 0
     property real prevY: 0
+    // lipstick's actions are pairs of an id and its label.
+    property string defaultActionLabel: {
+        if (notification == null || notification.actions == null)
+            return ""
+        for (var i = 0; i + 1 < notification.actions.length; i += 2)
+            if (notification.actions[i] === "default")
+                return notification.actions[i + 1]
+        return ""
+    }
 
     onNotificationChanged: {
         if(notification !== undefined && notification !== null) {
@@ -153,8 +162,13 @@ MouseArea {
         }
 
         NotificationButton {
+            // The notice's default action's label, "Answer" for a check-in,
+            // or "Dismiss" for a notice without one. Either way the tap
+            // invokes "default", as before: lipstick runs its remote action
+            // when the notice has the hint, sends ActionInvoked only when
+            // "default" is listed, and removes the notice unless resident.
             //% "Dismiss"
-            text: qsTrId("id-dismiss") + localeManager.changesObserver
+            text: (view.defaultActionLabel !== "" ? view.defaultActionLabel : qsTrId("id-dismiss")) + localeManager.changesObserver
             anchors.horizontalCenter: parent.horizontalCenter
             width: Dims.w(55)
             height: Dims.h(20)

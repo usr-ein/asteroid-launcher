@@ -38,11 +38,33 @@ Item {
     width: initialSize.width
     height: initialSize.height
 
+    // Whether the notice lists a "default" action: lipstick's actions are
+    // pairs of an id and its label. On an invoke, lipstick runs the action's
+    // x-nemo-remote-action-<id> hint whether or not the id is listed; only
+    // its ActionInvoked signal needs the id in the list.
+    function hasDefaultAction(notif) {
+        if (notif == null || notif.actions == null)
+            return false
+        for (var i = 0; i + 1 < notif.actions.length; i += 2)
+            if (notif.actions[i] === "default")
+                return true
+        return false
+    }
+
     MouseArea {
         id: notificationArea
         anchors.fill: parent
         enabled: state == "show"
-        onClicked: notificationArea.state = "hide"
+        // A tap on a notice that lists "default" invokes it, as the list's
+        // button does: lipstick runs its remote action, sends ActionInvoked,
+        // and removes the notice unless it is resident. Then the pop-up
+        // hides. A notice that doesn't list one only hides, as before.
+        onClicked: {
+            var notif = notificationPreviewPresenter.notification
+            if (notificationWindow.hasDefaultAction(notif))
+                notif.actionInvoked("default")
+            notificationArea.state = "hide"
+        }
 
         Rectangle {
             anchors.fill: parent
