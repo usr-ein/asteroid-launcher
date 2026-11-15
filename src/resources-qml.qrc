@@ -59,5 +59,6 @@
         <file alias="find-phone.svg">../sonic/icons/find-phone.svg</file>
         <file alias="voice-note-saved.svg">../sonic/icons/voice-note-saved.svg</file>
         <file alias="sonic-checkin.svg">../sonic/icons/sonic-checkin.svg</file>
+        <file alias="sonic-ai.svg">../sonic/icons/sonic-ai.svg</file>
     </qresource>
 </RCC>

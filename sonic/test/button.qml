@@ -634,6 +634,29 @@ Scene {
                             "on " + p.name + ": none with the display on or ambient, one with the display off")
             })
             expectEqual(guard(undefined, 0, 0), [false, false, false, true], "the home not known: as in an app")
+            // The AI app's hold (the main repo's ai/SKETCH.md § 12.1): with the display
+            // lit and the AI app in front, the hold is the app's; anywhere else
+            // canRecord decides, as above.
+            var lit = displays.map(function(d) { return VoiceButton.toApp(d.displayOn, d.ambient, false, true) })
+            expectEqual(lit, [true, false, false, false],
+                        "the AI app in front: its hold with the display on, a voice note's (as above) when ambient or off")
+            expectEqual(displays.map(function(d) { return VoiceButton.toApp(d.displayOn, d.ambient, true, true) }),
+                        [false, false, false, false], "the home in front: never the app's, the face's voice note as before")
+            expectEqual(displays.map(function(d) { return VoiceButton.toApp(d.displayOn, d.ambient, false, false) }),
+                        [false, false, false, false], "another app in front: never, and nothing records there, as before")
+            var aiLines = ['toAi = VoiceButton.toApp(',
+                           'aiButton.send("Down", [{"type": "x", "value": pressedAt}])',
+                           'aiButton.send("Held", [])',
+                           'aiButton.send("Up", [{"type": "x", "value": releasedAt}, {"type": "b", "value": confirmed}])',
+                           'aiButton.send("Press", [{"type": "x", "value": pressedAt}])',
+                           'captured: voiceNote.recording || voiceOverlay.shown || aiButton.capturing',
+                           'service: "org.sonicscrewdriver.ai"',
+                           'indexOf("sonic-ai")']
+            var ai = sh(aiLines.map(function(l) {
+                return "grep -cF '" + l + "' /src/src/qml/compositor/compositor.qml"
+            }).join("; ")).output.trim().split("\n")
+            expectEqual(ai, ["1", "1", "1", "1", "1", "1", "1", "1"],
+                        "compositor.qml routes a hold in the AI app to its Button interface: Down, Held, Up, and the captured Press while its note records")
             // The compositor's handler gives the guard the home and the grid's
             // position, and never reads the face's mode.
             var handler = sh("sed -n '/onHoldStarted: {/,/^        }/p' /src/src/qml/compositor/compositor.qml").output
@@ -644,10 +667,10 @@ Scene {
             var wiring = sh("grep -c 'onHoldStarted' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'VoiceButton.canRecord' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'voiceNote.start(pressedAt)' /src/src/qml/compositor/compositor.qml;"
-                            + " grep -c 'onHoldConfirmed: voiceNote.confirm()' /src/src/qml/compositor/compositor.qml;"
-                            + " grep -c 'onHoldEnded: voiceNote.end(releasedAt, confirmed)' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c '                voiceNote.confirm()$' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c '                voiceNote.end(releasedAt, confirmed)$' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'captured: voiceNote.recording || voiceOverlay.shown' /src/src/qml/compositor/compositor.qml;"
-                            + " grep -c 'onCapturedPressed: voiceNote.stop(pressedAt)' /src/src/qml/compositor/compositor.qml;"
+                            + " grep -c '                voiceNote.stop(pressedAt)$' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'z: 5$' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'z: 6$' /src/src/qml/compositor/compositor.qml;"
                             + " grep -c 'z: 5.5$' /src/src/qml/compositor/VoiceNoteOverlay.qml").output.trim().split("\n")
