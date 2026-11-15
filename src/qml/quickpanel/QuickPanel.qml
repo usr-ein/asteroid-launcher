@@ -49,7 +49,17 @@ Item {
 
     property bool forbidLeft: true
     property bool forbidRight: true
+    // The Focus picker scrolls: no swipe back to the watch face while it's open.
+    property bool forbidBottom: focusPicker.open
+    onForbidBottomChanged: grid.changeAllowedDirections()
     property int toggleSize: Dims.l(28)
+
+    // The Focus's name sits between the page dots and the battery while the
+    // Focus button is on the panel, and moves the battery that much away.
+    readonly property bool focusShown: toggleRegistry["hapticsToggle"] !== undefined
+                                       && (sliderToggles.value.indexOf("hapticsToggle") !== -1
+                                           || fixedToggles.value.indexOf("hapticsToggle") !== -1)
+    readonly property real focusRoom: focusShown ? Dims.l(2.5) : 0
 
     MceBatteryLevel { id: batteryChargePercentage }
     MceBatteryState { id: batteryChargeState }
@@ -138,7 +148,6 @@ Item {
     }
 
     NonGraphicalFeedback { id: feedback; event: "press" }
-    ProfileControl { id: profileControl }
     DisplaySettings { id: displaySettings }
 
     NetworkTechnology {
@@ -169,7 +178,18 @@ Item {
             }
             PropertyChanges {
                 target: valueMeter
-                anchors.topMargin: Dims.l(12)
+                anchors.topMargin: Dims.l(12) + rootitem.focusRoom
+                anchors.bottomMargin: 0
+            }
+
+            AnchorChanges {
+                target: focusLabel
+                anchors.top: pageDots.bottom
+                anchors.bottom: undefined
+            }
+            PropertyChanges {
+                target: focusLabel
+                anchors.topMargin: -Dims.l(0.8)
                 anchors.bottomMargin: 0
             }
 
@@ -218,7 +238,18 @@ Item {
             PropertyChanges {
                 target: valueMeter
                 anchors.topMargin: 0
-                anchors.bottomMargin: Dims.l(12)
+                anchors.bottomMargin: Dims.l(12) + rootitem.focusRoom
+            }
+
+            AnchorChanges {
+                target: focusLabel
+                anchors.top: undefined
+                anchors.bottom: pageDots.top
+            }
+            PropertyChanges {
+                target: focusLabel
+                anchors.topMargin: 0
+                anchors.bottomMargin: Dims.l(0.6)
             }
 
             AnchorChanges {
@@ -328,8 +359,21 @@ Item {
         function onCurrentVerticalPosChanged() {
             if (grid.currentVerticalPos === -1) {
                 slidingRow.positionViewAtBeginning()
+            } else {
+                // The panel is left, or the display went off, which moves
+                // the grid home (MainScreen's lockscreenDelay).
+                focusPicker.dismiss()
             }
         }
+    }
+
+    // PanelsGrid shows the panel as a swipe brings it in: the Focus's icons
+    // are read again from their files, which ioslink rewrites in place.
+    onVisibleChanged: {
+        if (visible)
+            watchFocus.reload()
+        else
+            focusPicker.dismiss()
     }
 
     ListView {
@@ -527,6 +571,26 @@ Item {
         opacity: 0.5
     }
 
+    // The watch's Focus, by name, between the page dots and the battery:
+    // "<name> · on the watch" for a Focus picked on the watch.
+    Label {
+        id: focusLabel
+        objectName: "focusLabel"
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Dims.w(70)
+        visible: rootitem.focusShown
+        horizontalAlignment: Text.AlignHCenter
+        elide: Text.ElideRight
+        text: !watchFocus.available ? "Focus unavailable"
+              : watchFocus.current.name + (watchFocus.picked ? " · on the watch" : "")
+        color: "#c9cfd8"
+        font {
+            pixelSize: Dims.l(4.85)
+            family: "Noto Sans"
+            styleName: "Condensed Medium"
+        }
+    }
+
     RemorseTimer {
         id: remorseTimer
         duration: 3000
@@ -576,37 +640,55 @@ Item {
         }
     }
 
+    // The Focus button, in the bell's place and under its key, so that the
+    // toggle lists in dconf stay as they are: the watch's Focus, its icon on
+    // its colour, a watch badge for a Focus picked on the watch; dimmed, with
+    // the outline bell, without ioslink. A tap opens the picker.
     Component {
         id: hapticsToggleComponent
-        // Cycles the three alert profiles: sound and vibration ("outdoors"),
-        // vibration only ("general"), then nothing ("silent").
         QuickPanelToggle {
-            readonly property string profile: profileControl.profile
+            id: focusButton
+            objectName: "focusButton"
+            readonly property bool available: watchFocus.available
+            readonly property var mode: watchFocus.current
 
-            icon: profile === "outdoors" ? "ios-notifications" :
-                  profile === "general" ? "ios-notifications-outline" : "ios-notifications-off"
-            tint: profile === "outdoors" ? "#ff9800" :
-                  profile === "general" ? "#2196f3" : "#222222"
-            checkable: true
-            checked: profile === "outdoors" || profile === "general"
+            icon: "ios-notifications-outline"
+            iconSource: available ? watchFocus.iconUrl(mode.icon) : ""
+            iconCache: false
+            tint: available && mode.color !== "" ? mode.color : "#2b2f36"
+            checkable: !available || mode.color !== ""
+            checked: available && mode.color !== ""
 
             onClicked: {
-                if (profile === "outdoors") {
-                    profileControl.profile = "general"
-                    feedbackDelayTimer.start()
-                } else if (profile === "general") {
-                    profileControl.profile = "silent"
-                } else {
-                    profileControl.profile = "outdoors"
-                    feedbackDelayTimer.start()
-                }
+                rootitem.notice = ""
+                focusPicker.show()
             }
 
-            Timer {
-                id: feedbackDelayTimer
-                interval: 125
-                repeat: false
-                onTriggered: feedback.play()
+            Rectangle {
+                objectName: "focusBadge"
+                visible: focusButton.available && watchFocus.picked
+                width: focusButton.width * 40 / 126
+                height: width
+                radius: width / 2
+                x: focusButton.width - width + focusButton.width * 2 / 126
+                y: focusButton.height - height - focusButton.width * 2 / 126
+                color: "black"
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: parent.width * 34 / 40
+                    height: width
+                    radius: width / 2
+                    color: "#e8ecf2"
+
+                    Icon {
+                        anchors.centerIn: parent
+                        width: parent.width * 24 / 34
+                        height: width
+                        name: "ios-watch"
+                        color: "black"
+                    }
+                }
             }
         }
     }
@@ -830,6 +912,23 @@ Item {
         onNotice: rootitem.showNotice(text)
     }
 
+    // The watch's Focus, from ioslink.
+    Focus {
+        id: watchFocus
+        objectName: "focus"
+        onNotice: rootitem.showNotice(text)
+    }
+
+    // The Focus picker and its confirmation, full screen over the panel.
+    FocusPicker {
+        id: focusPicker
+        objectName: "focusPicker"
+        anchors.fill: parent
+        z: 20
+        link: watchFocus
+        onBuzz: feedback.play()
+    }
+
     // A line for 3 s over the battery meter, such as the Find phone button's
     // "Phone not connected".
     property string notice: ""
@@ -851,7 +950,8 @@ Item {
         z: 10
         anchors.horizontalCenter: valueMeter.horizontalCenter
         anchors.top: valueMeter.top
-        anchors.topMargin: -Dims.l(4)
+        // Over the Focus's name too, under the battery's.
+        anchors.topMargin: -Dims.l(4) - (options.value.batteryBottom ? rootitem.focusRoom : 0)
         width: Dims.w(76)
         height: Dims.l(26)
         color: "black"

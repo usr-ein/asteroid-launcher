@@ -10,11 +10,13 @@
  */
 
 #include <QColor>
+#include <QDBusAbstractAdaptor>
 #include <QDBusConnection>
 #include <QDBusContext>
 #include <QDBusMessage>
 #include <QTimer>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFont>
 #include <QHash>
@@ -23,6 +25,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMouseEvent>
 #include <QProcess>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -30,6 +33,7 @@
 #include <QQuickView>
 #include <QTranslator>
 #include <QVariantMap>
+#include <QWindow>
 
 #include <cmath>
 #include <cstdio>
@@ -160,6 +164,42 @@ public:
         return true;
     }
 
+    // The mean difference between two screenshots in a rectangle, over red,
+    // green and blue, 0 to 255; -1 when either can't be read.
+    Q_INVOKABLE double difference(const QString &first, const QString &second, int x, int y, int width, int height)
+    {
+        const QImage a(first), b(second);
+        if (a.isNull() || b.isNull())
+            return -1;
+        const QRect area = QRect(x, y, width, height).intersected(a.rect()).intersected(b.rect());
+        if (area.isEmpty())
+            return 0;
+        double total = 0;
+        for (int py = area.top(); py <= area.bottom(); ++py) {
+            for (int px = area.left(); px <= area.right(); ++px) {
+                const QColor p = a.pixelColor(px, py), q = b.pixelColor(px, py);
+                total += qAbs(p.red() - q.red()) + qAbs(p.green() - q.green()) + qAbs(p.blue() - q.blue());
+            }
+        }
+        return total / (3.0 * area.width() * area.height());
+    }
+
+    // A finger on the screen, as the touchscreen's events reach the view:
+    // "press", "move" or "release" at (x, y), in the scene's pixels.
+    Q_INVOKABLE void touch(const QString &type, double x, double y)
+    {
+        if (!m_window)
+            return;
+        const QEvent::Type kind = type == QLatin1String("press") ? QEvent::MouseButtonPress
+            : type == QLatin1String("release") ? QEvent::MouseButtonRelease : QEvent::MouseMove;
+        const Qt::MouseButton button = kind == QEvent::MouseMove ? Qt::NoButton : Qt::LeftButton;
+        const Qt::MouseButtons buttons = kind == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton;
+        const QPointF at(x, y);
+        QMouseEvent event(kind, at, at, m_window->mapToGlobal(at.toPoint()), button, buttons, Qt::NoModifier);
+        event.setTimestamp(ulong(m_clock.elapsed()));
+        QCoreApplication::sendEvent(m_window, &event);
+    }
+
     Q_INVOKABLE void log(const QString &line)
     {
         std::printf("%s\n", qPrintable(line));
@@ -171,8 +211,14 @@ public:
         QCoreApplication::exit(status);
     }
 
+    QWindow *m_window = nullptr;
+
 private:
     QHash<QString, int> m_inputs;
+    QElapsedTimer m_clock;
+
+public:
+    TestTools() { m_clock.start(); }
 };
 
 // ioslink's FindPhone interface on the test bus, as Sonic Screwdriver's
@@ -231,6 +277,31 @@ private:
     }
 };
 
+// ioslink's Focus interface, on the stand-in's object beside FindPhone, as
+// Sonic Screwdriver's bridge PROTOCOL.md § 6.17.3 defines it and the quick
+// panel's Focus button and picker read it (src/qml/quickpanel/Focus.qml). An
+// adaptor, as QtDBus has one interface per object, or per adaptor: the
+// object's own is FindPhone's. Its calls go to IoslinkStandIn, which answers
+// them.
+class FocusAdaptor : public QDBusAbstractAdaptor
+{
+    Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.sonicscrewdriver.ioslink.Focus")
+    Q_PROPERTY(QString State READ state)
+
+public:
+    explicit FocusAdaptor(QObject *parent) : QDBusAbstractAdaptor(parent) { }
+
+    QString state() const { return m_state; }
+
+    QString m_state;
+    std::function<void(const QString &method, const QString &id, const QDBusMessage &call)> m_called;
+
+public slots:
+    void Pick(const QString &id, const QDBusMessage &call) { m_called(QStringLiteral("Pick"), id, call); }
+    void Follow(const QDBusMessage &call) { m_called(QStringLiteral("Follow"), QString(), call); }
+};
+
 // The stand-in for ioslink that a scene drives, as `ioslink`: it puts the
 // FindPhone interface on the test bus, or takes it off, and answers Ring()
 // and Stop() as PROTOCOL.md § 6.10 says ioslink does. It has a connection of
@@ -240,9 +311,28 @@ private:
 // before the call returns; a tap that doesn't take puts it back 300 ms later,
 // with Problem set before ProblemAt. Without a session, Problem and then
 // NotConnected.
+// Its Focus interface comes and goes with it, and plays ioslink's rules, as
+// the main repo's fakeioslink focus does: State from the table that a scene
+// sets, the iPhone's Focus and a pick; Pick(id) picks, or follows the iPhone
+// for the iPhone's own Focus, and an id the table lacks is NotFound; Follow()
+// ends a pick. Each publishes State with PropertiesChanged, before it
+// answers.
 class IoslinkStandIn : public QObject
 {
     Q_OBJECT
+    // Sonic's table, each Focus {id, name, color, base, icon}, No Focus
+    // first; whether it has reached the watch (State's `table`); the
+    // iPhone's Focus, whose change ends a pick, as a new FocusSet does.
+    Q_PROPERTY(QVariantList focusTable READ focusTable WRITE setFocusTable)
+    Q_PROPERTY(bool focusTableSent READ focusTableSent WRITE setFocusTableSent)
+    Q_PROPERTY(QString focusIphone READ focusIphone WRITE setFocusIphone)
+    // How Pick() and Follow() end: "ok", as ioslink; "notfound", NotFound for
+    // any Pick(), as for a Focus gone from the table meanwhile; "failed",
+    // Failed; "hang", no answer at all.
+    Q_PROPERTY(QString focusAnswer MEMBER m_focusAnswer)
+    // Every call so far: "Pick <id>" and "Follow".
+    Q_PROPERTY(QStringList focusCalls MEMBER m_focusCalls)
+    Q_PROPERTY(QString focusState READ focusState)
     Q_PROPERTY(bool available READ available WRITE setAvailable)
     Q_PROPERTY(bool ringing READ ringing WRITE setRinging)
     // How a ring ends: "ring", it rings; "denied" (CODE_DENIED);
@@ -284,6 +374,39 @@ public:
             else
                 tap(false, m_stopAnswer == QLatin1String("timeout") ? QStringLiteral("Phone didn't answer") : QString());
         });
+        m_focus->m_state = focusJson();
+        m_focus->m_called = [this](const QString &method, const QString &id, const QDBusMessage &call) {
+            focusCalled(method, id, call);
+        };
+    }
+
+    QVariantList focusTable() const { return m_focusTable; }
+    void setFocusTable(const QVariantList &table)
+    {
+        m_focusTable = table;
+        publishFocus();
+    }
+    bool focusTableSent() const { return m_focusTableSent; }
+    void setFocusTableSent(bool sent)
+    {
+        m_focusTableSent = sent;
+        publishFocus();
+    }
+    QString focusIphone() const { return m_iphone; }
+    void setFocusIphone(const QString &id)
+    {
+        m_iphone = id;
+        m_hasPick = false;
+        m_picked.clear();
+        publishFocus();
+    }
+    QString focusState() const { return m_focus->m_state; }
+
+    // State again, with PropertiesChanged, as it stands.
+    Q_INVOKABLE void publishFocus()
+    {
+        m_focus->m_state = focusJson();
+        changed(QStringLiteral("State"), m_focus->m_state, QStringLiteral("org.sonicscrewdriver.ioslink.Focus"));
     }
 
     bool available() const { return m_object.m_available; }
@@ -328,7 +451,8 @@ public:
     Q_INVOKABLE bool start()
     {
         return m_bus.registerObject(path, &m_object,
-                                    QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableProperties)
+                                    QDBusConnection::ExportScriptableSlots | QDBusConnection::ExportScriptableProperties
+                                        | QDBusConnection::ExportAdaptors)
             && m_bus.registerService(service);
     }
 
@@ -339,18 +463,93 @@ public:
     }
 
 private:
-    void changed(const QString &name, const QVariant &value)
+    void changed(const QString &name, const QVariant &value,
+                 const QString &iface = QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone"))
     {
         QDBusMessage signal = QDBusMessage::createSignal(path, QStringLiteral("org.freedesktop.DBus.Properties"),
                                                          QStringLiteral("PropertiesChanged"));
-        signal << QStringLiteral("org.sonicscrewdriver.ioslink.FindPhone") << QVariantMap{{name, value}} << QStringList();
+        signal << iface << QVariantMap{{name, value}} << QStringList();
         m_bus.send(signal);
+    }
+
+    // A Focus by its id: the table's, or before the table No Focus alone, at
+    // the bell's level.
+    QJsonObject focusMode(const QString &id, bool *found) const
+    {
+        if (!m_focusTableSent) {
+            *found = id.isEmpty();
+            return QJsonObject{{QStringLiteral("id"), QString()}, {QStringLiteral("name"), QStringLiteral("No Focus")},
+                               {QStringLiteral("color"), QString()}, {QStringLiteral("base"), QStringLiteral("vibration")},
+                               {QStringLiteral("icon"), QString()}};
+        }
+        for (const QVariant &focus : m_focusTable) {
+            const QVariantMap mode = focus.toMap();
+            if (mode.value(QStringLiteral("id")).toString() == id) {
+                *found = true;
+                return QJsonObject::fromVariantMap(mode);
+            }
+        }
+        *found = false;
+        return QJsonObject();
+    }
+
+    // State, as busapi's FocusState says it.
+    QString focusJson() const
+    {
+        bool found = false;
+        const QJsonObject current = focusMode(m_hasPick ? m_picked : m_iphone, &found);
+        const QJsonObject iphone = focusMode(m_iphone, &found);
+        QJsonArray focuses;
+        if (m_focusTableSent) {
+            for (const QVariant &focus : m_focusTable)
+                focuses.append(QJsonObject::fromVariantMap(focus.toMap()));
+        } else {
+            focuses.append(current);
+        }
+        const QJsonObject state{
+            {QStringLiteral("current"), current},
+            {QStringLiteral("source"), m_hasPick ? QStringLiteral("watch") : QStringLiteral("iphone")},
+            {QStringLiteral("iphone"), QJsonObject{{QStringLiteral("id"), iphone.value(QStringLiteral("id"))},
+                                                   {QStringLiteral("name"), iphone.value(QStringLiteral("name"))}}},
+            {QStringLiteral("focuses"), focuses},
+            {QStringLiteral("table"), m_focusTableSent}};
+        return QString::fromUtf8(QJsonDocument(state).toJson(QJsonDocument::Compact));
+    }
+
+    void focusCalled(const QString &method, const QString &id, const QDBusMessage &call)
+    {
+        const bool pick = method == QLatin1String("Pick");
+        m_focusCalls << (pick ? QStringLiteral("Pick %1").arg(id) : method);
+        const QString focus = QStringLiteral("org.sonicscrewdriver.ioslink.Focus.Error.");
+        bool found = false;
+        focusMode(id, &found);
+        if (m_focusAnswer == QLatin1String("hang")) {
+            call.setDelayedReply(true);
+        } else if (m_focusAnswer == QLatin1String("failed")) {
+            call.setDelayedReply(true);
+            m_bus.send(call.createErrorReply(focus + QStringLiteral("Failed"), QStringLiteral("ioslink can't take the call now")));
+        } else if (pick && (m_focusAnswer == QLatin1String("notfound") || !found)) {
+            call.setDelayedReply(true);
+            m_bus.send(call.createErrorReply(focus + QStringLiteral("NotFound"), QStringLiteral("no such Focus: ") + id));
+        } else {
+            m_hasPick = pick && id != m_iphone;
+            m_picked = m_hasPick ? id : QString();
+            publishFocus();
+        }
     }
 
     const QString service = QStringLiteral("org.sonicscrewdriver.ioslink");
     const QString path = QStringLiteral("/org/sonicscrewdriver/ioslink");
     QDBusConnection m_bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, QStringLiteral("ioslink"));
     FindPhoneObject m_object;
+    FocusAdaptor *m_focus = new FocusAdaptor(&m_object);
+    QVariantList m_focusTable;
+    bool m_focusTableSent = false;
+    QString m_iphone;
+    QString m_picked;
+    bool m_hasPick = false;
+    QString m_focusAnswer = QStringLiteral("ok");
+    QStringList m_focusCalls;
     QString m_answer = QStringLiteral("ring");
     QString m_stopAnswer = QStringLiteral("stop");
     int m_rings = 0;
@@ -1070,6 +1269,7 @@ int main(int argc, char **argv)
     MceStandIn mce;
     VoiceNotesStandIn voicenotes;
     QQuickView view;
+    tools.m_window = &view;
     view.rootContext()->setContextProperty(QStringLiteral("test"), &tools);
     view.rootContext()->setContextProperty(QStringLiteral("ioslink"), &ioslink);
     view.rootContext()->setContextProperty(QStringLiteral("mce"), &mce);

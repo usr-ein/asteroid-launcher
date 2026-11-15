@@ -513,6 +513,66 @@ is the feedback.
   toggles it knows, so it needs the button too: the settings fork's
   `findPhoneButton` entry.
 
+## The quick panel's Focus button
+
+The quick panel's alert-profile bell is gone: the watch's Focus decides every
+alert (Sonic Screwdriver's docs/focus/SKETCH.md, § 3 and § 5). In its place,
+the Focus button shows the watch's Focus, and a tap opens the picker. It
+keeps the bell's key, `hapticsToggle`, so the toggle lists in dconf stay as
+they are. `ProfileControl` went with the bell, its only user.
+- **ioslink's Focus interface,** on its object on the session bus
+  (`src/qml/quickpanel/Focus.qml`, PROTOCOL.md § 6.17.3):
+  - `State`, a JSON with `PropertiesChanged`: `current`, the watch's Focus
+    (id, name, colour, base level, and its icon, a PNG file's path, or "");
+    `source`, `iphone`, or `watch` for a Focus picked on the watch;
+    `iphone`, the iPhone's Focus; `focuses`, Sonic's table, in its order, No
+    Focus (id "") first; `table`, false until the table has reached the
+    watch, when `focuses` holds No Focus alone;
+  - `Pick(id)`, the watch's Focus until the iPhone's next Focus change, and
+    `Follow()`, which ends a pick.
+- **The button:** the Focus's icon, white, on its colour at the toggles'
+  0.75; the outline bell without an icon; a small watch badge, bottom right,
+  for a Focus picked on the watch. Without ioslink, dimmed, with the outline
+  bell.
+- **Its name,** between the page dots and the battery: the Focus's name,
+  "<name> · on the watch" for a pick, "Focus unavailable" without ioslink.
+  The mockup has it where the panel's screenshots show nothing, but the
+  battery bar is there on the watch (the screenshots lack it, below), so the
+  bar and the percentage move down 2.5 % of the screen (11 px) to make room,
+  only while the button is on the panel.
+- **The picker,** full screen over the panel, opens scrolled with the watch's
+  Focus centred: under the title, FOCUS, "Follow iPhone" first while a pick
+  holds, with the iPhone's Focus under it; then each Focus with its icon on
+  its colour, its name, and its base level ("No Focus · Vibration" for No
+  Focus), the watch's ticked. Without a table, No Focus alone, and "Set up
+  Focus in Sonic, on the iPhone."; without ioslink, "Focus needs ioslink,
+  which isn't running."
+  - **A tap** on a Focus calls `Pick(id)`, on Follow iPhone `Follow()`, at
+    once, and closes the picker. Only a tap picks: a swipe across a row
+    doesn't.
+  - **Closing without a pick:** AsteroidOS's back, a right swipe from the left
+    edge, which the picker follows as qml-asteroid's `LayerStack` does (the
+    launcher's notification actions use it); a right swipe anywhere else; a
+    tap on the title, or on the line without ioslink. Leaving the panel, or
+    the panel hidden, closes it too; the display going off does both, as
+    MainScreen moves the grid home. While it's open, the panel's swipe down
+    to the face is off (`forbidBottom`), so that the list scrolls.
+- **The confirmation:** the new Focus, full screen, for 1.9 s, with "the
+  iPhone's Focus", "until the iPhone's next Focus change" for a pick, or
+  "following the iPhone again" after Follow.
+- **Press:** 125 ms after a tap, the panel's `press` plays, as the bell's did,
+  unless the new Focus's base level is Silent; after Follow too, by the
+  iPhone's Focus.
+- **A failed call** takes the confirmation and the press back, and shows the
+  panel's 3 s line: "Focus not found" for `NotFound`, a Focus gone from the
+  table meanwhile; "Focus didn't change" for `Failed`, the bus's `NoReply`
+  and `Timeout`, or anything else. The journal has the error's name.
+- **The icons are read again** each time the panel shows and each time the
+  picker opens, uncached (`cache: false`, with a URL that changes at each
+  reload). ioslink rewrites an icon's file in place, under the same path and
+  with the same `State`, when only its symbol changes in Sonic, so nothing
+  else tells the launcher.
+
 ## The watch face's fallback
 
 A watch face that fails to load shows the default face instead, so that the
@@ -571,6 +631,22 @@ in the launcher, in a 454 × 454 view: the watch's screen.
     the harness, and `sonic/watch/quickpanel-findphone` against the SDK's own
     dconf service. The sound toggle's unmute sound, a `SoundEffect` that opens
     an audio stream as soon as it exists, is there only with the toggle.
+    - **The Focus button,** against the same stand-in's Focus interface, which
+      plays ioslink's rules, with Sam's table and `sonic/test/focus-icons/`,
+      the five icons as Sonic draws them, and a finger through the view: the
+      iPhone's Focus (its icon file, its colour read back from the
+      screenshot, its name above the battery); the picker's rows, levels,
+      tick and centring; a pick (Pick with the id, the confirmation and its
+      1.9 s, the badge and "· on the watch" from the next `State`, the press
+      125 ms after the tap only for a base that vibrates, from the stand-in
+      `NonGraphicalFeedback`'s record); the iPhone's own Focus picked;
+      Follow; No Focus with Sam's icon; the six ways the picker closes
+      without a pick, and a scroll that picks nothing; no table; `NotFound`
+      and `Failed`; an icon rewritten in place, unchanged until the panel
+      shows again, then new on the button and in the picker; no ioslink; and,
+      with the watch's own settings, the button where the bell was, with the
+      lists unchanged. Each state is `quickpanel-focus-<state>.png`, on the
+      scene's sheet.
   - `today` runs the Today screen with the SDK's real AgendaModel over mkcal.
     `seed-calendar.cpp` fills four coloured notebooks with the mockup's
     sample days, invented, and changes them under the open screen.
