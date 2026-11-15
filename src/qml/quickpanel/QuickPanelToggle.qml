@@ -37,8 +37,10 @@ MouseArea {
     height: width
 
     property alias icon: ic.name
-    // A picture of its own, drawn in white, in place of the named icon.
+    // A picture of its own, drawn in white, in place of the named icon; read
+    // again from its file at each change of its URL when iconCache is false.
     property url iconSource: ""
+    property bool iconCache: true
     property bool checkable: false
     property bool checked: false
     property color tint: "#2b2f36"
@@ -120,6 +122,7 @@ MouseArea {
         anchors.centerIn: parent
         source: ma.iconSource
         sourceSize: Qt.size(width, height)
+        cache: ma.iconCache
         opacity: ic.opacity
     }
 }

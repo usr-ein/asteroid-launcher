@@ -28,7 +28,8 @@ Scene {
         ["applist-hidden-08", "Diamonds, last"],
         ["applist-all-09", "An app without a logo"],
         ["quickpanel", "The quick panel"],
-        ["quickpanel-outdoors", "The bell on outdoors"],
+        ["quickpanel-focus-iphone", "The Focus button: Work"],
+        ["quickpanel-focus-picker", "The Focus picker"],
         ["today-1342", "The Today screen"]
     ]
 
