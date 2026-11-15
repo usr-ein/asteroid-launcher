@@ -164,7 +164,9 @@ MouseArea {
         NotificationButton {
             // The notice's default action's label, "Answer" for a check-in,
             // or "Dismiss" for a notice without one. Either way the tap
-            // invokes "default", which lipstick runs only when it is listed.
+            // invokes "default", as before: lipstick runs its remote action
+            // when the notice has the hint, sends ActionInvoked only when
+            // "default" is listed, and removes the notice unless resident.
             //% "Dismiss"
             text: (view.defaultActionLabel !== "" ? view.defaultActionLabel : qsTrId("id-dismiss")) + localeManager.changesObserver
             anchors.horizontalCenter: parent.horizontalCenter
