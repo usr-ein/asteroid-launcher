@@ -38,11 +38,30 @@ Item {
     width: initialSize.width
     height: initialSize.height
 
+    // Whether the notice has a "default" action: lipstick's actions are
+    // pairs of an id and its label, and it runs only the ids listed there.
+    function hasDefaultAction(notif) {
+        if (notif == null || notif.actions == null)
+            return false
+        for (var i = 0; i + 1 < notif.actions.length; i += 2)
+            if (notif.actions[i] === "default")
+                return true
+        return false
+    }
+
     MouseArea {
         id: notificationArea
         anchors.fill: parent
         enabled: state == "show"
-        onClicked: notificationArea.state = "hide"
+        // A tap runs the notice's default action, as the list's button
+        // does (its remote action, then the notice goes unless resident),
+        // and hides the pop-up. A notice without one only hides.
+        onClicked: {
+            var notif = notificationPreviewPresenter.notification
+            if (notificationWindow.hasDefaultAction(notif))
+                notif.actionInvoked("default")
+            notificationArea.state = "hide"
+        }
 
         Rectangle {
             anchors.fill: parent
