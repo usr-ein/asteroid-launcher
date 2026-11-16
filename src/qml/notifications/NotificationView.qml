@@ -81,6 +81,10 @@ Item {
     readonly property real pillHeight: 76
     readonly property real pillFontPx: 36
     readonly property real pillPadding: 22
+    // A label too long for the widest pill shrinks down to labelMinPx, then
+    // is cut with "…". It's laid out once, at the widest pill's width, and
+    // scaled with its pill: never laid out again while it scrolls.
+    readonly property real labelMinPx: 12
     // The space between two pills, and between the text and the main pill.
     readonly property real pillGap: 20
     readonly property real textGap: 40
@@ -98,6 +102,8 @@ Item {
     // listed pill's reaches tapMargin around it, so two meet half way.
     readonly property real bandWidth: 0.60
     readonly property real bandTop: 0.79
+    // The band reaches at least bandAbove px above the pinned pill.
+    readonly property real bandAbove: 6
     readonly property real tapMargin: pillGap / 2
     // The notification's own actions shown at most, the main one included.
     readonly property int maxOwnActions: 3
@@ -108,6 +114,10 @@ Item {
     // by clearFade px at most.
     readonly property real topClear: 0.13
     readonly property real clearFade: 24
+    // Text fades out above the main pill: gone within pillClearance px of
+    // its top, whole pillClearance + pillFade px above it.
+    readonly property real pillClearance: 6
+    readonly property real pillFade: 24
     // Each kind of line: its size, as a multiple of fontPx, its weight and its colour.
     readonly property var kinds: ({
             "caption": { size: 0.6, weight: Font.Normal, color: "#8a929e" },
@@ -306,7 +316,7 @@ Item {
             // Text fades out just above the main pill, so nothing reads behind
             // it, and below the row of notification icons at the top.
             var bottom = Y[i] + lines[i].h / 2 * s
-            var o = fit.opacityAt(Y[i]) * Math.max(0, Math.min(1, (mainTop - bottom - 6 * px) / (24 * px)))
+            var o = fit.opacityAt(Y[i]) * Math.max(0, Math.min(1, (mainTop - bottom - pillClearance * px) / (pillFade * px)))
                     * Math.max(0, Math.min(1, (Y[i] - clear) / (clearFade * px)))
             line.visible = o > 0
             if (o > 0) {
@@ -437,7 +447,7 @@ Item {
                     if (isPinned) {
                         x = (view.width - view.bandWidth * view.width) / 2
                         width = view.bandWidth * view.width
-                        pill.y = Math.min(view.bandTop * view.height, top - 6 * view.px)
+                        pill.y = Math.min(view.bandTop * view.height, top - view.bandAbove * view.px)
                         height = view.height - pill.y
                     } else {
                         var m = view.tapMargin * view.px
@@ -448,6 +458,7 @@ Item {
                     }
                     shape.x = (view.width - w) / 2 - x
                     shape.y = top - pill.y
+                    label.scale = Math.min(1, (w - 2 * view.pillPadding * view.px) / Math.max(1, label.contentWidth))
                 }
 
                 function activate() {
@@ -461,15 +472,18 @@ Item {
                     radius: height / 2
                     color: tap.pressed ? view.pressedColor : (pill.order === 0 ? view.mainColor : view.pillColor)
 
+                    // Laid out once, at the widest pill's width; place() scales it
+                    // with its pill.
                     Text {
+                        id: label
                         anchors.centerIn: parent
-                        width: parent.width - 2 * view.pillPadding * view.px
+                        width: view.pillWidth * view.width - 2 * view.pillPadding * view.px
                         horizontalAlignment: Text.AlignHCenter
                         text: pill.label
                         color: "#ffffff"
                         font.pixelSize: view.pillFontPx * view.px
                         fontSizeMode: Text.HorizontalFit
-                        minimumPixelSize: 12 * view.px
+                        minimumPixelSize: view.labelMinPx * view.px
                         elide: Text.ElideRight
                         textFormat: Text.PlainText
                     }
