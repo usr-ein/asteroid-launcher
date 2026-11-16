@@ -45,11 +45,15 @@ import org.asteroid.controls 1.0
  *    circle allows, up to pillWidth near the middle, and fades at the rim like
  *    the text; the pinned one doesn't.
  *  - Which actions: lipstick's pairs, [key, label, ...]. The main one is
- *    "default" when it's listed, else Dismiss. Then the notification's other
- *    actions, in their order; then Dismiss, and Dismiss all. A key's tap
- *    invokes it: lipstick runs its remote action, sends ActionInvoked to its
- *    owner, and closes the notification. Dismiss closes it, which ioslink
- *    takes as the iPhone's Clear (Sam: "Dismiss == Clear").
+ *    "default" when it's listed, else Dismiss. The list: the main action
+ *    when it's the default, the notification's other actions in their
+ *    order, Dismiss all, and Dismiss last (Sam: "Dismiss all first-safe"):
+ *    so at the end, the pin's place holds Dismiss, never Dismiss all. When
+ *    Dismiss is the main one, it stays at the pin, and the others rise above
+ *    it, fading in as they clear it. A key's tap invokes it: lipstick runs
+ *    its remote action, sends ActionInvoked to its owner, and closes the
+ *    notification. Dismiss closes it, which ioslink takes as the iPhone's
+ *    Clear (Sam: "Dismiss == Clear").
  * The lines and the pills are in the round fit's `tappable` layer, inside its
  * Flickable: a pill's MouseArea gets a tap, and the Flickable takes a drag
  * that starts on a pill over from it, so it scrolls: Qt 5's own pattern for
@@ -141,6 +145,9 @@ Item {
     property var lines: []
     property var pills: []
     property int firstPill: 0
+    // The main pill's index among the pills: the first, or the last when it's
+    // Dismiss.
+    property int mainPill: 0
 
     onNotificationChanged: rebuild()
     onWidthChanged: Qt.callLater(rebuild)
@@ -178,7 +185,9 @@ Item {
     }
 
     // The pills, in order: { label, action } for one of the notification's
-    // own actions, { label, launcher } for Dismiss and Dismiss all.
+    // own actions, { label, launcher } for Dismiss and Dismiss all; the main
+    // one has main: true. Dismiss is always last, and Dismiss all just before
+    // it.
     function actionList() {
         var listed = notification && notification.actions ? notification.actions : []
         var main = null
@@ -198,7 +207,11 @@ Item {
         var dismiss = { label: qsTrId("id-dismiss") + localeManager.changesObserver, launcher: "dismiss" }
         //% "Dismiss all"
         var dismissAll = { label: qsTrId("id-dismiss-all") + localeManager.changesObserver, launcher: "dismiss-all" }
-        return (main ? [main] : [dismiss]).concat(own, main ? [dismiss] : [], [dismissAll])
+        if (main)
+            main.main = true
+        else
+            dismiss.main = true
+        return (main ? [main] : []).concat(own, [dismissAll, dismiss])
     }
 
     // Greedy word wrap at width, measured by metrics; a word wider than the
@@ -271,6 +284,11 @@ Item {
             all[j].y = j === 0 ? 0 : all[j - 1].y + all[j - 1].h / 2 + all[j].gap + all[j].h / 2
         var titleY = all.length > 1 ? all[1].y : 0
         firstPill = first
+        mainPill = 0
+        for (var m = 0; m < acts.length; m++) {
+            if (acts[m].main)
+                mainPill = m
+        }
         lines = all.slice(0, first)
         pills = all.slice(first)
         rows = all
@@ -305,10 +323,11 @@ Item {
             return
         var Y = fit.walk(rows)
         var pinY = pinAt * height
-        var mainFlow = Y[firstPill]
+        var mainRow = firstPill + mainPill
+        var mainFlow = Y[mainRow]
         var pinned = mainFlow > pinY
         var mainY = pinned ? pinY : mainFlow
-        var mainTop = mainY - rows[firstPill].h / 2
+        var mainTop = mainY - rows[mainRow].h / 2
         var clear = topClear * height
         for (var i = 0; i < lines.length; i++) {
             var line = lineItems.itemAt(i)
@@ -327,11 +346,15 @@ Item {
         }
         for (var j = 0; j < pills.length; j++) {
             var row = pills[j]
-            var main = j === 0
+            var main = j === mainPill
             var y = main ? mainY : Y[firstPill + j]
             var w = widthAt(y, row.h)
             var op = main && pinned ? 1 : fit.opacityAt(y) * Math.max(0, Math.min(1, (w / row.h - squeezeFrom) / squeezeOver))
                      * Math.max(0, Math.min(1, (y - row.h / 2 - clear + clearFade * px) / (clearFade * px)))
+            // A pill above the pinned one fades out as it nears it, gone where
+            // it would touch it, whole a gap away, as it is at the end.
+            if (pinned && j < mainPill)
+                op *= Math.max(0, Math.min(1, (mainTop - (y + row.h / 2)) / (pillGap * px)))
             pillItems.itemAt(j).place(y, w, op, main && pinned)
         }
     }
@@ -431,7 +454,8 @@ Item {
                 property bool pinned: false
                 property bool shown: false
                 visible: shown
-                z: index === 0 ? 2 : 1
+                readonly property bool main: row.main === true
+                z: main ? 2 : 1
 
                 // Its place at the screen's y, its width w and its opacity;
                 // its tap area around it, or the band under it when pinned.
@@ -470,7 +494,7 @@ Item {
                     width: pill.pillWidth
                     height: pill.pillHeight
                     radius: height / 2
-                    color: tap.pressed ? view.pressedColor : (pill.order === 0 ? view.mainColor : view.pillColor)
+                    color: tap.pressed ? view.pressedColor : (pill.main ? view.mainColor : view.pillColor)
 
                     // Laid out once, at the widest pill's width; place() scales it
                     // with its pill.

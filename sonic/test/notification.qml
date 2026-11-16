@@ -8,7 +8,9 @@
  *   - the check-in, with Answer and "Ask me in 10 min";
  *   - an incoming WhatsApp call, with the iPhone's Accept and Decline.
  * On P-032's round-fit view it checks:
- *   - the pills: their order and labels, and no Snooze anywhere;
+ *   - the pills: their order and labels, and no Snooze anywhere; Dismiss
+ *     last and Dismiss all just before it, so the pin's place at the end
+ *     holds Dismiss (Sam: "Dismiss all first-safe");
  *   - the main action pinned at the bottom while the text is read, and the
  *     last pill there at the end;
  *   - their size: one height, 80% of the screen near the middle, narrower
@@ -110,12 +112,12 @@ Scene {
     }
 
     readonly property var cases: [
-        { n: whatsapp, name: "whatsapp", pills: ["Dismiss", "Dismiss all"],
-          keys: ["dismiss", "dismiss-all"], pinned: true },
-        { n: checkin, name: "checkin", pills: ["Answer", "Ask me in 10 min", "Dismiss", "Dismiss all"],
-          keys: ["default", "later", "dismiss", "dismiss-all"], pinned: false },
-        { n: call, name: "call", pills: ["Dismiss", "Accept", "Decline", "Dismiss all"],
-          keys: ["dismiss", "ancs-positive", "ancs-negative", "dismiss-all"], pinned: false }
+        { n: whatsapp, name: "whatsapp", pills: ["Dismiss all", "Dismiss"],
+          keys: ["dismiss-all", "dismiss"], main: "Dismiss", pinned: true },
+        { n: checkin, name: "checkin", pills: ["Answer", "Ask me in 10 min", "Dismiss all", "Dismiss"],
+          keys: ["default", "later", "dismiss-all", "dismiss"], main: "Answer", pinned: false },
+        { n: call, name: "call", pills: ["Accept", "Decline", "Dismiss all", "Dismiss"],
+          keys: ["ancs-positive", "ancs-negative", "dismiss-all", "dismiss"], main: "Dismiss", pinned: true }
     ]
     property var files: []
     property var labels: []
@@ -186,9 +188,13 @@ Scene {
             var r = x.pillHeight / 2
             var end = Math.sqrt(Math.pow(x.pillWidth / 2 - r, 2) + d * d) + r
             check(end <= R + 0.5, c.name + " " + where + ": " + x.label + " inside the circle (" + end.toFixed(1) + " of " + R + ")")
-            if (i > 0)
-                check(x.centreY - visible[i - 1].centreY >= x.pillHeight + 20 * view.width / 454 - 0.5,
+            // Two pills in the list keep their gap; one nearing the pinned
+            // pill fades out before it would touch it.
+            if (i > 0) {
+                var apart = x.pinned || visible[i - 1].pinned ? x.pillHeight : x.pillHeight + 20 * view.width / 454
+                check(x.centreY - visible[i - 1].centreY >= apart - 0.5,
                       c.name + " " + where + ": " + x.label + " doesn't overlap the pill above it")
+            }
             if (x.pinned)
                 check(x.opacity === 1, c.name + " " + where + ": the pinned pill isn't faded")
             else
@@ -267,8 +273,12 @@ Scene {
                     var p = pills()
                     expectEqual(p.map(function(x) { return x.label }), c.pills, c.name + ": its pills, in order")
                     check(p.every(function(x) { return x.label !== "Snooze" }), c.name + ": no Snooze")
+                    check(p[p.length - 1].label === "Dismiss" && p[p.length - 2].label === "Dismiss all",
+                          c.name + ": Dismiss last, Dismiss all just before it, never last")
+                    var mains = p.filter(function(x) { return x.main })
+                    check(mains.length === 1 && mains[0].label === c.main, c.name + ": its main action is " + c.main)
                     if (c.pinned) {
-                        check(p[0].pinned && Math.abs(p[0].centreY - 0.852 * view.height) < 1,
+                        check(mains[0].pinned && Math.abs(mains[0].centreY - 0.852 * view.height) < 1,
                               c.name + ": its main action is pinned at the bottom while the text is read")
                     }
                     checkPills(c, "at the start")
@@ -287,8 +297,11 @@ Scene {
                 if (f) {
                     var p = pills()
                     var last = p[p.length - 1]
-                    check(Math.abs(last.centreY - 0.852 * view.height) < 1, c.name + ": at the end, the last pill is where the main one was pinned")
-                    check(!p[0].pinned, c.name + ": at the end, the main action has left its pin")
+                    check(Math.abs(last.centreY - 0.852 * view.height) < 1 && last.label === "Dismiss",
+                          c.name + ": at the end, Dismiss is where the main one was pinned")
+                    var main = p.filter(function(x) { return x.main })[0]
+                    if (main !== last)
+                        check(!main.pinned && main.centreY < last.centreY, c.name + ": at the end, the main action has left its pin, above the others")
                     checkPills(c, "at the end")
                 }
                 keep(c.name + "-end", c.name + ": the end", done)
