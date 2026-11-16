@@ -27,7 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import QtQuick 2.12
+import QtQuick 2.9
 import org.asteroid.controls 1.0
 
 /*
@@ -51,8 +51,9 @@ import org.asteroid.controls 1.0
  *    owner, and closes the notification. Dismiss closes it, which ioslink
  *    takes as the iPhone's Clear (Sam: "Dismiss == Clear").
  * The lines and the pills are in the round fit's `tappable` layer, inside its
- * Flickable: a pill's TapHandler gets a tap, and a drag that starts on a pill
- * scrolls.
+ * Flickable: a pill's MouseArea gets a tap, and the Flickable takes a drag
+ * that starts on a pill over from it, so it scrolls. (A TapHandler there
+ * took the harness's mouse taps but not the watch's touches.)
  * The view plays no sound: lipstick plays each notification's own
  * x-nemo-feedback event through ngfd once, and the active profile decides
  * whether it sounds or vibrates.
@@ -474,9 +475,10 @@ Item {
                     }
                 }
 
-                TapHandler {
+                MouseArea {
                     id: tap
-                    onTapped: pill.activate()
+                    anchors.fill: parent
+                    onClicked: pill.activate()
                 }
             }
         }

@@ -37,12 +37,13 @@
  * pills (NotificationView.qml, P-032).
  *
  * The pieces are drawn above the Flickable that scrolls them, which then
- * never sees a press on a piece that takes it: a TapHandler or a MouseArea
- * on one would stop the scroll from there. Such pieces go in `tappable`
- * instead: a layer inside the Flickable that stays put on the screen, placed
- * in the screen's coordinates like the others. The Flickable sees their
- * press first, and takes it over when it turns into a drag; a TapHandler
- * there gets its tap otherwise (NotificationView.qml's pills, P-032).
+ * never sees a press on a piece that takes it: a MouseArea on one would stop
+ * the scroll from there. Such pieces go in `tappable` instead: a layer inside
+ * the Flickable that stays put on the screen, placed in the screen's
+ * coordinates like the others. The Flickable sees their press first, and
+ * takes it over when it turns into a drag; a MouseArea there gets its click
+ * otherwise (NotificationView.qml's pills, P-032). A TapHandler there took
+ * mouse taps in the harness, but not the watch's touches.
  *
  * Its shape is the constants below, the reader's own; a screen's sizes are
  * its own constants (the Today screen's: timeline.js).
