@@ -75,7 +75,14 @@ function layout(events) {
             columns[col] = ev.bottom
             ev.col = col
         })
-        cluster.forEach(function(ev) { ev.ncol = columns.length })
+        // The cluster's extent: its blocks share one round-fit scale, so that
+        // side by side they never overlap (Today.qml).
+        var top = cluster[0].top
+        cluster.forEach(function(ev) {
+            ev.ncol = columns.length
+            ev.clusterTop = top
+            ev.clusterBottom = clusterEnd
+        })
         cluster = []
         clusterEnd = -1
     }

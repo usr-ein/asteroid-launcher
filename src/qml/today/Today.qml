@@ -192,36 +192,94 @@ Item {
         chips = allDay
     }
 
-    // A block's horizontal scale: the round fit's at the block's point
-    // nearest the middle of the screen.
-    function blockScale(b) {
-        var top = timeline.mapY((b.top + 1) * px)
-        var bottom = timeline.mapY((b.top + b.height - 1) * px)
-        return timeline.scaleAt(Math.max(top, Math.min(bottom, timeline.height / 2)))
-    }
-
-    // The screen x of the leftmost block edge at the content's y (at the
-    // timeline's own size), give or take a label's half height; Infinity
-    // without a block there. A block takes its width where it is nearest the
-    // middle, and a label lower down shrinks toward the middle, so a label
-    // stops there instead of sliding under the block.
-    function blocksLeftAt(y) {
-        var left = Infinity
-        var margin = 10
-        for (var i = 0; i < blocks.length; i++) {
-            var b = blocks[i]
-            if (b.top - margin < y && y < b.top + b.height + margin)
-                left = Math.min(left, timeline.mapX(b.x * px, blockScale(b)))
+    // The round fit, in one pass each time the timeline moves: every hour row,
+    // every block and the now line placed from the same numbers, assigned
+    // rather than bound, so that a frame costs one walk over the day (P-031:
+    // a binding each ran at about half the frame rate on the watch).
+    // - A block: its top and its bottom mapped apart, so that blocks that
+    //   touch keep touching; as wide as at the point of its cluster (the events
+    //   that overlap it) nearest the middle, the same for all of them, so that
+    //   side by side they never overlap; its insides at the size of the height
+    //   its title is at.
+    // - A label stops at the leftmost block edge at its height, since a block
+    //   keeps its width where it is nearest the middle while a label lower
+    //   down shrinks toward the middle.
+    function layout() {
+        var f = timeline
+        if (!f || f.width <= 0)
+            return
+        var h = f.height
+        var mid = h / 2
+        var off = 60 * px
+        var edges = []
+        for (var i = 0; i < events.count; i++) {
+            var item = events.itemAt(i)
+            if (!item)
+                continue
+            var b = item.block
+            var top = f.mapY((b.top + 1) * px)
+            var bottom = f.mapY((b.top + b.height - 1) * px)
+            if (bottom < -off || top > h + off) {
+                item.visible = false
+                continue
+            }
+            var near = Math.max(top, Math.min(bottom, mid))
+            // Its cluster's scale: at the point of the cluster, all the events
+            // that overlap it, nearest the middle; one for them all.
+            var ctop = f.mapY((b.clusterTop + 1) * px)
+            var cbottom = f.mapY((b.clusterBottom - 1) * px)
+            var k = f.scaleAt(Math.max(ctop, Math.min(cbottom, mid)))
+            var o = f.opacityAt(near)
+            item.x = f.mapX(b.x * px, k)
+            item.y = top
+            item.width = b.width * px * k
+            item.height = Math.max(0, bottom - top)
+            item.textScale = f.scaleAt(top + 14 * px * k)
+            item.opacity = o
+            item.visible = o > 0
+            if (o > 0)
+                edges.push({ top: b.top, bottom: b.top + b.height, left: item.x })
         }
-        return left
+        // The x at which a label at the content's y (the timeline's own px)
+        // ends, at its row's own size, its row scaled by k.
+        var labelRight = function(right, y, k) {
+            var left = Infinity
+            for (var e = 0; e < edges.length; e++) {
+                if (edges[e].top - 10 < y && y < edges[e].bottom + 10)
+                    left = Math.min(left, edges[e].left)
+            }
+            if (left === Infinity)
+                return right
+            return Math.min(right, f.originX + (left - 6 * px - f.originX) / k)
+        }
+        for (var m = 0; m < hours.count; m++) {
+            var row = hours.itemAt(m)
+            if (!row)
+                continue
+            var y = f.mapY(m * 60 * ppm)
+            if (y < -off || y > h + off) {
+                row.visible = false
+                continue
+            }
+            var rk = f.scaleAt(y)
+            var ro = f.opacityAt(y)
+            row.y = y
+            row.k = rk
+            row.opacity = ro
+            row.visible = ro > 0
+            if (ro > 0)
+                row.labelRight = labelRight(102 * px, m * Timeline.PPH, rk)
+        }
+        var ny = f.mapY(nowMinute * ppm)
+        var nk = f.scaleAt(ny)
+        nowLine.y = ny
+        nowLine.k = nk
+        nowLine.opacity = f.opacityAt(ny)
+        nowLine.visible = nowLine.opacity > 0
+        nowLine.labelRight = labelRight(94 * px, nowMinute * Timeline.PPH / 60, nk)
     }
 
-    // A label's x, at its row's own size, whose right edge is `right` unless a
-    // block's left edge at its height comes first; its row is scaled by k.
-    function labelRight(right, y, k) {
-        var limit = blocksLeftAt(y) - 6 * px
-        return Math.min(right, timeline.originX + (limit - timeline.originX) / k)
-    }
+    onNowMinuteChanged: layout()
 
     function centreOnNow() {
         timeline.positionTo(nowMinute * ppm)
@@ -258,30 +316,34 @@ Item {
             }
         }
 
-        // Each hour: a row, its faint line across and its label on the left.
+        onPositionChanged: today.layout()
+        onTableChanged: today.layout()
+
+        // Each hour: a row, its faint line across and its label on the left,
+        // placed by layout().
         Repeater {
+            id: hours
             model: 25
+            onItemAdded: Qt.callLater(today.layout)
 
             Item {
                 readonly property int minute: index * 60
-                readonly property real at: timeline.mapY(minute * today.ppm)
-                readonly property real k: timeline.scaleAt(at)
-                y: at
+                property real k: 1
+                property real labelRight: 102 * today.px
                 width: timeline.width
-                opacity: timeline.opacityAt(at)
-                visible: opacity > 0
+                visible: false
                 transform: Scale { origin.x: timeline.originX; xScale: k; yScale: k }
 
                 Rectangle {
                     x: Timeline.X0 * today.px
                     width: (Timeline.X1 - Timeline.X0) * today.px
-                    height: Math.max(1, today.px / k)
+                    height: Math.max(1, today.px)
                     color: "#1b1f26"
                 }
 
                 Text {
                     objectName: "hourLabel"
-                    x: today.labelRight(102 * today.px, minute * Timeline.PPH / 60, parent.k) - width
+                    x: parent.labelRight - width
                     anchors.verticalCenter: parent.top
                     anchors.verticalCenterOffset: 2 * today.px
                     text: Timeline.hourLabel(index, use12H.value)
@@ -295,40 +357,28 @@ Item {
             }
         }
 
-        // Each event: its top and its bottom mapped apart, so that blocks that
-        // touch keep touching; as wide as at its point nearest the middle, and
-        // its text at the size of the height the text is at.
+        // Each event, placed by layout().
         Repeater {
+            id: events
             model: today.blocks
+            onItemAdded: Qt.callLater(today.layout)
 
             TodayEvent {
-                readonly property real topY: timeline.mapY((modelData.top + 1) * today.px)
-                readonly property real bottomY: timeline.mapY((modelData.top + modelData.height - 1) * today.px)
-                readonly property real near: Math.max(topY, Math.min(bottomY, timeline.height / 2))
-                readonly property real k: today.blockScale(modelData)
                 block: modelData
                 px: today.px
-                textScale: timeline.scaleAt(topY + 14 * today.px * k)
-                x: timeline.mapX(modelData.x * today.px, k)
-                y: topY
-                width: modelData.width * today.px * k
-                height: Math.max(0, bottomY - topY)
-                opacity: timeline.opacityAt(near)
-                visible: opacity > 0
+                visible: false
                 // Only while the screen shows, and the block is in view.
-                active: today.visible && visible && bottomY > 0 && topY < timeline.height
+                active: today.visible && visible
             }
         }
 
         Item {
             id: nowLine
-            readonly property real at: timeline.mapY(today.nowMinute * today.ppm)
-            readonly property real k: timeline.scaleAt(at)
+            property real k: 1
+            property real labelRight: 94 * today.px
             z: 2
-            y: at
             width: timeline.width
-            opacity: timeline.opacityAt(at)
-            visible: opacity > 0
+            visible: false
             transform: Scale { origin.x: timeline.originX; xScale: nowLine.k; yScale: nowLine.k }
 
             Rectangle {
@@ -347,7 +397,7 @@ Item {
                 color: "#ff453a"
             }
             Text {
-                x: today.labelRight(94 * today.px, today.nowMinute * Timeline.PPH / 60, nowLine.k) - width
+                x: nowLine.labelRight - width
                 anchors.verticalCenter: parent.top
                 anchors.verticalCenterOffset: 1 * today.px
                 text: Timeline.formatTime(today.now, use12H.value)

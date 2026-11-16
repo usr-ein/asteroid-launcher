@@ -130,6 +130,27 @@ Scene {
         return out
     }
 
+    // The blocks in view that overlap another, as "Brunch wit/Call the l".
+    function blocksOverlapping() {
+        var events = []
+        var walk = function(item) {
+            if (item.block !== undefined && item.animating !== undefined && item.visible && item.opacity > 0.05)
+                events.push(item)
+            for (var i = 0; i < item.children.length; i++)
+                walk(item.children[i])
+        }
+        walk(fit())
+        var out = []
+        for (var i = 0; i < events.length; i++) {
+            for (var j = i + 1; j < events.length; j++) {
+                var a = events[i], b = events[j]
+                if (a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height)
+                    out.push(a.block.title.substring(0, 10) + "/" + b.block.title.substring(0, 10))
+            }
+        }
+        return out
+    }
+
     // A screenshot, kept for the contact sheet.
     function keep(name, label, done) {
         files.push(shots + "/" + name + ".png")
@@ -229,6 +250,28 @@ Scene {
                 keep("today-2100", "21:00: blocks that touch", done)
             })
         },
+        // Events side by side share one scale, so they never overlap, wherever
+        // the middle is: every 15 minutes from 08:30 to 13:00, around the
+        // brunch and the call beside it.
+        function(done) {
+            var seen = []
+            var at = 8 * 60 + 30
+            var next = function() {
+                if (at > 13 * 60) {
+                    expectEqual(seen, [], "no two blocks overlap, from 08:30 to 13:00")
+                    done()
+                    return
+                }
+                fit().positionTo(at * today.ppm)
+                var o = blocksOverlapping()
+                if (o.length)
+                    seen.push(Math.floor(at / 60) + ":" + (at % 60) + " " + o.join(", "))
+                at += 15
+                after(20, next)
+            }
+            next()
+        },
+
         // The day's start and its end, each at the middle.
         function(done) {
             fit().positionTo(0)

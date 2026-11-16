@@ -25,6 +25,10 @@
  * the content from top to bottom: mapY each end apart, so blocks that touch
  * keep touching.
  * position is the content's y at the middle; positionTo(y) moves it there.
+ * With more than a few pieces, place them all in one pass on
+ * positionChanged (and tableChanged), assigning y, scale and opacity, rather
+ * than a binding each: on the watch, a binding per piece halved the frame
+ * rate of the Today screen (P-031). Today.qml's layout() is the example.
  *
  * Its shape is the constants below, the reader's own; a screen's sizes are
  * its own constants (the Today screen's: timeline.js).
@@ -58,19 +62,13 @@ Item {
     readonly property alias moving: flick.moving
     readonly property real radius: Math.min(width, height) / 2
 
-    signal movementStarted
-    signal movementEnded
-
     function positionTo(y) {
         flick.cancelFlick()
         flick.contentY = Math.max(0, Math.min(contentHeight, y)) * zoom - flick.topMargin
     }
 
-    function flickBy(velocity) {
-        flick.flick(0, velocity)
-    }
-
-    // The scale of a row whose middle is at the screen's Y: the circle's
+    // The scale of a row whose middle is at the screen's Y (a line's own y; a
+    // taller piece's centre, or it overlaps its neighbour): the circle's
     // chord there, less the margin, over the row's full width, between
     // minScale and 1; times zoom.
     function scaleAt(Y) {
@@ -139,7 +137,5 @@ Item {
         bottomMargin: height / 2
         flickableDirection: Flickable.VerticalFlick
         boundsBehavior: Flickable.StopAtBounds
-        onMovementStarted: fit.movementStarted()
-        onMovementEnded: fit.movementEnded()
     }
 }

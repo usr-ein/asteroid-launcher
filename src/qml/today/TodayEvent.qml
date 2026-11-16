@@ -14,7 +14,9 @@
  *   shows and the block is in view.
  * - With the round fit (Today.qml, RoundFit.qml), Today.qml sets the block's
  *   place and size on the screen, and textScale, the size its insides are
- *   drawn at: everything inside is drawn at its own size, then scaled.
+ *   drawn at: everything inside is drawn at its own size, then scaled. The
+ *   text keeps the width of the block at its own size, whatever the block's
+ *   width on the screen, so that it never wraps again while it scrolls.
  */
 import QtQuick 2.9
 import 'timeline.js' as Timeline
@@ -29,6 +31,8 @@ Item {
     property bool active: false
     // The scale of everything inside: the border, the corners and the text.
     property real textScale: 1
+    // The text's width, at the block's own size.
+    readonly property real textWidth: block.width * px - 21 * px
     // Whether the title is moving, for the tests.
     readonly property bool animating: roll.running || slide.running
 
@@ -46,38 +50,43 @@ Item {
     width: block.width * px
     height: (block.height - 2) * px
 
-    // The block at its own size, scaled to the screen's.
+    // The block on the screen: its calendar's colour as a border on the left,
+    // and darkened, the block, at the screen's size; the border and the
+    // corners at the text's scale.
+    readonly property real inset: px * textScale
+    Rectangle {
+        anchors.fill: parent
+        radius: 7 * event.inset
+        color: event.colour
+    }
+    Rectangle {
+        x: 4 * event.inset
+        width: parent.width - 11 * event.inset
+        height: parent.height
+        color: event.fill
+    }
+    Rectangle {
+        x: parent.width - 14 * event.inset
+        width: 14 * event.inset
+        height: parent.height
+        radius: 7 * event.inset
+        color: event.fill
+    }
+
+    // The text at the block's own size, scaled to the screen's: its width
+    // never changes, so it is never laid out again while it scrolls.
     Item {
-        width: event.width / event.textScale
+        width: block.width * px
         height: event.height / event.textScale
         scale: event.textScale
         transformOrigin: Item.TopLeft
-
-        Rectangle {
-            anchors.fill: parent
-            radius: 7 * px
-            color: event.colour
-        }
-        Rectangle {
-            x: 4 * px
-            width: parent.width - 11 * px
-            height: parent.height
-            color: event.fill
-        }
-        Rectangle {
-            x: parent.width - 14 * px
-            width: 14 * px
-            height: parent.height
-            radius: 7 * px
-            color: event.fill
-        }
 
         // Normal: the title above the time.
         Item {
             visible: !block.compact
             x: 13 * px
             y: 6 * px
-            width: parent.width - 21 * px
+            width: event.textWidth
             height: parent.height - 6 * px
             clip: true
 
@@ -117,7 +126,7 @@ Item {
         Item {
             visible: block.compact
             x: 13 * px
-            width: parent.width - 21 * px
+            width: event.textWidth
             height: Timeline.LINE * px
             anchors.verticalCenter: parent.verticalCenter
             clip: true
