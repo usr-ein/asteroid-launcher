@@ -280,6 +280,9 @@ Item {
     }
 
     onNowMinuteChanged: layout()
+    // Fewer events or none adds no delegate: lay out again anyway, so that no
+    // label keeps to the edge of a block that is gone.
+    onBlocksChanged: Qt.callLater(layout)
 
     function centreOnNow() {
         timeline.positionTo(nowMinute * ppm)
