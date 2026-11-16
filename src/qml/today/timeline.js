@@ -18,6 +18,16 @@ var LINE = 25           // a title line
 var TIME_H = 18         // the time's line
 var PAD_V = 12          // a block's padding, top and bottom together
 
+// The round fit (RoundFit.qml, P-031): the middle of the screen shows the
+// sizes above ZOOM times, and toward the rim each row shrinks to the circle's
+// width, as the round-fit reader does. A row, at the sizes above, goes from
+// the hour label's left (ROW_LEFT) to the blocks' right edge (ROW_RIGHT), and
+// shrinks about its own middle. "Bigger" is ZOOM; past about 1.22 the rows
+// fill the circle at the middle, and it changes nothing more.
+var ZOOM = 1.2
+var ROW_LEFT = 50
+var ROW_RIGHT = 378
+
 // The minute of the day of a date, from 0 to 1440, clipped to the day that
 // starts at dayStart and ends at dayEnd.
 function minuteOfDay(date, dayStart, dayEnd) {

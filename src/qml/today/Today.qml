@@ -38,8 +38,13 @@
  *   overlap share the width (TodayEvent.qml, timeline.js).
  * - The date and the weather on top, with the all-day events as chips under
  *   them, in a band that stays.
+ * - It scrolls with the round fit (RoundFit.qml, P-031): the time at the
+ *   middle of the screen is drawn Timeline.ZOOM times the sizes, and toward
+ *   the top and the bottom the hours, their labels and the blocks shrink to
+ *   the circle's width and fade, the day squeezed rather than cut.
  * - While it scrolls, a bubble on the right edge shows the time at the middle
- *   of the screen, and fades out a second after it stops.
+ *   of the screen, the date, the weather and the chips fade out so that the
+ *   whole round day shows, and both turn back a second after it stops.
  * - It centres on now whenever it comes into view. Nothing moves while it
  *   is out of view: the clock stops and the titles stand still.
  * The events come from the same AgendaModel as before.
@@ -67,7 +72,7 @@ Item {
     property date now: nowClock.time
     readonly property real nowMinute: now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
     // The time at the middle of the screen, which the bubble shows.
-    readonly property real centreMinute: (timeline.contentY + centreY) / ppm
+    readonly property real centreMinute: timeline.position / ppm
 
     // The day's events: timed ones laid out as blocks, all-day ones as chips.
     property var blocks: []
@@ -188,8 +193,7 @@ Item {
     }
 
     function centreOnNow() {
-        timeline.cancelFlick()
-        timeline.contentY = nowMinute * ppm - centreY
+        timeline.positionTo(nowMinute * ppm)
     }
 
     onVisibleChanged: if (visible) centreOnNow()
@@ -206,16 +210,13 @@ Item {
         color: "black"
     }
 
-    Flickable {
+    RoundFit {
         id: timeline
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: 24 * Timeline.PPH * px
-        // 00:00 and 24:00 can each reach the middle of the screen.
-        topMargin: centreY
-        bottomMargin: height - centreY
-        flickableDirection: Flickable.VerticalFlick
-        boundsBehavior: Flickable.StopAtBounds
+        contentHeight: 24 * Timeline.PPH * today.px
+        zoom: Timeline.ZOOM
+        rowWidth: (Timeline.ROW_RIGHT - Timeline.ROW_LEFT) * today.px
+        originX: (Timeline.ROW_LEFT + Timeline.ROW_RIGHT) / 2 * today.px
 
         onMovingChanged: {
             if (moving) {
@@ -226,18 +227,24 @@ Item {
             }
         }
 
+        // Each hour: a row, its faint line across and its label on the left.
         Repeater {
             model: 25
 
             Item {
                 readonly property int minute: index * 60
-                y: index * Timeline.PPH * today.px
+                readonly property real at: timeline.mapY(minute * today.ppm)
+                readonly property real k: timeline.scaleAt(at)
+                y: at
                 width: timeline.width
+                opacity: timeline.opacityAt(at)
+                visible: opacity > 0
+                transform: Scale { origin.x: timeline.originX; xScale: k; yScale: k }
 
                 Rectangle {
                     x: Timeline.X0 * today.px
-                    width: (454 - Timeline.X0 - 76) * today.px
-                    height: Math.max(1, today.px)
+                    width: (Timeline.X1 - Timeline.X0) * today.px
+                    height: Math.max(1, today.px / k)
                     color: "#1b1f26"
                 }
 
@@ -256,27 +263,46 @@ Item {
             }
         }
 
+        // Each event: its top and its bottom mapped apart, so that blocks that
+        // touch keep touching; as wide as at its point nearest the middle, and
+        // its text at the size of the height the text is at.
         Repeater {
             model: today.blocks
 
             TodayEvent {
+                readonly property real topY: timeline.mapY((modelData.top + 1) * today.px)
+                readonly property real bottomY: timeline.mapY((modelData.top + modelData.height - 1) * today.px)
+                readonly property real near: Math.max(topY, Math.min(bottomY, timeline.height / 2))
+                readonly property real k: timeline.scaleAt(near)
                 block: modelData
                 px: today.px
+                textScale: timeline.scaleAt(topY + 14 * today.px * k)
+                x: timeline.mapX(modelData.x * today.px, k)
+                y: topY
+                width: modelData.width * today.px * k
+                height: Math.max(0, bottomY - topY)
+                opacity: timeline.opacityAt(near)
+                visible: opacity > 0
                 // Only while the screen shows, and the block is in view.
-                active: today.visible && y + height > timeline.contentY
-                        && y < timeline.contentY + timeline.height
+                active: today.visible && visible && bottomY > 0 && topY < timeline.height
             }
         }
 
         Item {
             id: nowLine
+            readonly property real at: timeline.mapY(today.nowMinute * today.ppm)
+            readonly property real k: timeline.scaleAt(at)
             z: 2
-            y: today.nowMinute * today.ppm
+            y: at
             width: timeline.width
+            opacity: timeline.opacityAt(at)
+            visible: opacity > 0
+            transform: Scale { origin.x: timeline.originX; xScale: nowLine.k; yScale: nowLine.k }
 
             Rectangle {
                 x: 104 * today.px
-                width: (454 - 104 - 76) * today.px
+                y: -1 * today.px
+                width: (Timeline.X1 - 104) * today.px
                 height: 2 * today.px
                 color: "#ff453a"
             }
@@ -315,9 +341,14 @@ Item {
     // The date, the weather and the all-day events, over the timeline.
     Item {
         id: band
+        objectName: "todayBand"
         z: 3
         width: parent.width
         height: 118 * px
+        opacity: today.peeking ? 0 : 1
+        visible: opacity > 0
+
+        Behavior on opacity { NumberAnimation { duration: today.peeking ? 120 : 350 } }
 
         Rectangle {
             width: parent.width

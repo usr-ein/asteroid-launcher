@@ -12,6 +12,9 @@
  *   sideways.
  * - The title moves only while `active`: Today.qml sets it while the screen
  *   shows and the block is in view.
+ * - With the round fit (Today.qml, RoundFit.qml), Today.qml sets the block's
+ *   place and size on the screen, and textScale, the size its insides are
+ *   drawn at: everything inside is drawn at its own size, then scaled.
  */
 import QtQuick 2.9
 import 'timeline.js' as Timeline
@@ -24,6 +27,8 @@ Item {
     // The mockup's pixel, on this screen.
     property real px: 1
     property bool active: false
+    // The scale of everything inside: the border, the corners and the text.
+    property real textScale: 1
     // Whether the title is moving, for the tests.
     readonly property bool animating: roll.running || slide.running
 
@@ -41,101 +46,109 @@ Item {
     width: block.width * px
     height: (block.height - 2) * px
 
-    Rectangle {
-        anchors.fill: parent
-        radius: 7 * px
-        color: event.colour
-    }
-    Rectangle {
-        x: 4 * px
-        width: parent.width - 11 * px
-        height: parent.height
-        color: event.fill
-    }
-    Rectangle {
-        x: parent.width - 14 * px
-        width: 14 * px
-        height: parent.height
-        radius: 7 * px
-        color: event.fill
-    }
-
-    // Normal: the title above the time.
+    // The block at its own size, scaled to the screen's.
     Item {
-        visible: !block.compact
-        x: 13 * px
-        y: 6 * px
-        width: parent.width - 21 * px
-        height: parent.height - 6 * px
-        clip: true
+        width: event.width / event.textScale
+        height: event.height / event.textScale
+        scale: event.textScale
+        transformOrigin: Item.TopLeft
 
-        // As many lines as the title takes, up to block.lines.
+        Rectangle {
+            anchors.fill: parent
+            radius: 7 * px
+            color: event.colour
+        }
+        Rectangle {
+            x: 4 * px
+            width: parent.width - 11 * px
+            height: parent.height
+            color: event.fill
+        }
+        Rectangle {
+            x: parent.width - 14 * px
+            width: 14 * px
+            height: parent.height
+            radius: 7 * px
+            color: event.fill
+        }
+
+        // Normal: the title above the time.
         Item {
-            id: titleWindow
-            width: parent.width
-            height: Math.max(1, Math.min(block.lines, title.lineCount)) * Timeline.LINE * px
+            visible: !block.compact
+            x: 13 * px
+            y: 6 * px
+            width: parent.width - 21 * px
+            height: parent.height - 6 * px
             clip: true
 
-            Text {
-                id: title
-                readonly property real overflow: Math.max(0, contentHeight - titleWindow.height)
+            // As many lines as the title takes, up to block.lines.
+            Item {
+                id: titleWindow
                 width: parent.width
-                text: block.title
-                wrapMode: Text.Wrap
-                lineHeightMode: Text.FixedHeight
-                lineHeight: Timeline.LINE * px
-                color: event.mix(event.colour, 0.22, 1)
-                font.pixelSize: 20 * px
-                font.weight: Font.DemiBold
+                height: Math.max(1, Math.min(block.lines, title.lineCount)) * Timeline.LINE * px
+                clip: true
+
+                Text {
+                    id: title
+                    readonly property real overflow: Math.max(0, contentHeight - titleWindow.height)
+                    width: parent.width
+                    text: block.title
+                    wrapMode: Text.Wrap
+                    lineHeightMode: Text.FixedHeight
+                    lineHeight: Timeline.LINE * px
+                    color: event.mix(event.colour, 0.22, 1)
+                    font.pixelSize: 20 * px
+                    font.weight: Font.DemiBold
+                }
+            }
+
+            Text {
+                y: titleWindow.height + 2 * px
+                width: parent.width
+                text: block.timeText
+                elide: Text.ElideRight
+                color: event.mix(event.colour, 0.52, 1)
+                font.pixelSize: 15 * px
+                font.weight: Font.Medium
             }
         }
 
-        Text {
-            y: titleWindow.height + 2 * px
-            width: parent.width
-            text: block.timeText
-            elide: Text.ElideRight
-            color: event.mix(event.colour, 0.52, 1)
-            font.pixelSize: 15 * px
-            font.weight: Font.Medium
-        }
-    }
-
-    // Short: one line, the time first.
-    Item {
-        visible: block.compact
-        x: 13 * px
-        width: parent.width - 21 * px
-        height: Timeline.LINE * px
-        anchors.verticalCenter: parent.verticalCenter
-        clip: true
-
-        // On the title's baseline.
-        Text {
-            id: compactTime
-            y: slideWindow.y + compactTitle.y + compactTitle.baselineOffset - baselineOffset
-            text: block.timeText
-            color: event.mix(event.colour, 0.52, 1)
-            font.pixelSize: 15 * px
-            font.weight: Font.Medium
-        }
-
+        // Short: one line, the time first.
         Item {
-            id: slideWindow
-            x: compactTime.width + 7 * px
-            width: Math.max(0, parent.width - x)
-            height: parent.height
+            visible: block.compact
+            x: 13 * px
+            width: parent.width - 21 * px
+            height: Timeline.LINE * px
+            anchors.verticalCenter: parent.verticalCenter
             clip: true
 
+            // On the title's baseline.
             Text {
-                id: compactTitle
-                readonly property real overflow: Math.max(0, contentWidth - slideWindow.width)
+                id: compactTime
+                y: slideWindow.y + compactTitle.y + compactTitle.baselineOffset - baselineOffset
+                text: block.timeText
+                color: event.mix(event.colour, 0.52, 1)
+                font.pixelSize: 15 * px
+                font.weight: Font.Medium
+            }
+
+            Item {
+                id: slideWindow
+                x: compactTime.width + 7 * px
+                width: Math.max(0, parent.width - x)
                 height: parent.height
-                verticalAlignment: Text.AlignVCenter
-                text: block.title
-                color: event.mix(event.colour, 0.22, 1)
-                font.pixelSize: 18 * px
-                font.weight: Font.DemiBold
+                clip: true
+
+                Text {
+                    id: compactTitle
+                    readonly property real overflow: Math.max(0, contentWidth - slideWindow.width)
+                    height: parent.height
+                    verticalAlignment: Text.AlignVCenter
+                    text: block.title
+                    color: event.mix(event.colour, 0.22, 1)
+                    font.pixelSize: 18 * px
+                    font.weight: Font.DemiBold
+                }
             }
         }
     }
