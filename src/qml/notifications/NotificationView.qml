@@ -100,6 +100,13 @@ Item {
     readonly property real tapMargin: pillGap / 2
     // The notification's own actions shown at most, the main one included.
     readonly property int maxOwnActions: 3
+    // The top of the screen kept clear for the launcher's row of
+    // notification icons (MainScreen's NotificationIndicator: Dims.h(5) down,
+    // Dims.h(8) high), as a share of the screen. A line fades out as its
+    // middle comes within clearFade px of it; a pill as its top goes past it,
+    // by clearFade px at most.
+    readonly property real topClear: 0.13
+    readonly property real clearFade: 24
     // Each kind of line: its size, as a multiple of fontPx, its weight and its colour.
     readonly property var kinds: ({
             "caption": { size: 0.6, weight: Font.Normal, color: "#8a929e" },
@@ -291,12 +298,15 @@ Item {
         var pinned = mainFlow > pinY
         var mainY = pinned ? pinY : mainFlow
         var mainTop = mainY - rows[firstPill].h / 2
+        var clear = topClear * height
         for (var i = 0; i < lines.length; i++) {
             var line = lineItems.itemAt(i)
             var s = fit.scaleAt(Y[i])
-            // Text fades out just above the main pill, so nothing reads behind it.
+            // Text fades out just above the main pill, so nothing reads behind
+            // it, and below the row of notification icons at the top.
             var bottom = Y[i] + lines[i].h / 2 * s
             var o = fit.opacityAt(Y[i]) * Math.max(0, Math.min(1, (mainTop - bottom - 6 * px) / (24 * px)))
+                    * Math.max(0, Math.min(1, (Y[i] - clear) / (clearFade * px)))
             line.visible = o > 0
             if (o > 0) {
                 line.y = Y[i] - line.height / 2
@@ -310,6 +320,7 @@ Item {
             var y = main ? mainY : Y[firstPill + j]
             var w = widthAt(y, row.h)
             var op = main && pinned ? 1 : fit.opacityAt(y) * Math.max(0, Math.min(1, (w / row.h - squeezeFrom) / squeezeOver))
+                     * Math.max(0, Math.min(1, (y - row.h / 2 - clear + clearFade * px) / (clearFade * px)))
             pillItems.itemAt(j).place(y, w, op, main && pinned)
         }
     }
