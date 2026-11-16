@@ -7,15 +7,18 @@
  *     is the watch's Dismiss;
  *   - the check-in, with Answer and "Ask me in 10 min";
  *   - an incoming WhatsApp call, with the iPhone's Accept and Decline.
- * On P-032's round-fit view it checks:
+ * On the round-fit view (P-032, with P-042's layout) it checks:
+ *   - the start: the first line near the top, whole, the title just below
+ *     it, and no scrolling further up (Sam, P-042: "I want the title at the
+ *     top");
  *   - the pills: their order and labels, and no Snooze anywhere; Dismiss
- *     last and Dismiss all just before it, so the pin's place at the end
- *     holds Dismiss (Sam: "Dismiss all first-safe");
- *   - the main action pinned at the bottom while the text is read, and the
- *     last pill there at the end;
+ *     first and Dismiss all last (Sam, P-042: "I want the other buttons to
+ *     scroll into view below the dismiss button");
+ *   - nothing pinned: every pill comes after the text, in order down the
+ *     screen, and the last one ends the list at the bottom;
  *   - their size: one height, 80% of the screen near the middle, narrower
  *     toward the rim with their rounded ends inside the circle, never
- *     overlapping, fading at the rim, the pinned one never;
+ *     overlapping, fading at the rim;
  *   - taps, as real presses and releases: a pill's key invoked, Dismiss
  *     removing the notification, Dismiss all removing every one; and a press
  *     on a pill that moves scrolls instead of tapping.
@@ -111,13 +114,15 @@ Scene {
         columns: 3
     }
 
+    // main: the "default" action's label, drawn as the main one; none
+    // without one.
     readonly property var cases: [
-        { n: whatsapp, name: "whatsapp", pills: ["Dismiss all", "Dismiss"],
-          keys: ["dismiss-all", "dismiss"], main: "Dismiss", pinned: true },
-        { n: checkin, name: "checkin", pills: ["Answer", "Ask me in 10 min", "Dismiss all", "Dismiss"],
-          keys: ["default", "later", "dismiss-all", "dismiss"], main: "Answer", pinned: false },
-        { n: call, name: "call", pills: ["Accept", "Decline", "Dismiss all", "Dismiss"],
-          keys: ["ancs-positive", "ancs-negative", "dismiss-all", "dismiss"], main: "Dismiss", pinned: true }
+        { n: whatsapp, name: "whatsapp", pills: ["Dismiss", "Dismiss all"],
+          keys: ["dismiss", "dismiss-all"], main: "" },
+        { n: checkin, name: "checkin", pills: ["Dismiss", "Answer", "Ask me in 10 min", "Dismiss all"],
+          keys: ["dismiss", "default", "later", "dismiss-all"], main: "Answer" },
+        { n: call, name: "call", pills: ["Dismiss", "Accept", "Decline", "Dismiss all"],
+          keys: ["dismiss", "ancs-positive", "ancs-negative", "dismiss-all"], main: "" }
     ]
     property var files: []
     property var labels: []
@@ -139,6 +144,15 @@ Scene {
         var p = find(view, function(i) { return i.objectName === "notificationPill" }, [])
         p.sort(function(a, b) { return a.order - b.order })
         return p
+    }
+
+    function lines() {
+        var l = find(view, function(i) { return i.objectName === "notificationLine" }, [])
+        l.sort(function(a, b) { return a.y - b.y })
+        return l
+    }
+    function middleOf(line) {
+        return line.y + line.height / 2
     }
 
     function keep(name, label, done) {
@@ -188,20 +202,22 @@ Scene {
             var r = x.pillHeight / 2
             var end = Math.sqrt(Math.pow(x.pillWidth / 2 - r, 2) + d * d) + r
             check(end <= R + 0.5, c.name + " " + where + ": " + x.label + " inside the circle (" + end.toFixed(1) + " of " + R + ")")
-            // Two pills in the list keep their gap; one nearing the pinned
-            // pill fades out before it would touch it.
+            // Two pills keep their gap, in their order down the screen.
             if (i > 0) {
-                var apart = x.pinned || visible[i - 1].pinned ? x.pillHeight : x.pillHeight + 20 * view.width / 454
-                check(x.centreY - visible[i - 1].centreY >= apart - 0.5,
-                      c.name + " " + where + ": " + x.label + " doesn't overlap the pill above it")
+                check(x.order > visible[i - 1].order
+                      && x.centreY - visible[i - 1].centreY >= x.pillHeight + 20 * view.width / 454 - 0.5,
+                      c.name + " " + where + ": " + x.label + " is below the pill above it, a gap apart")
             }
-            if (x.pinned)
-                check(x.opacity === 1, c.name + " " + where + ": the pinned pill isn't faded")
-            else
-                check(x.opacity <= fit().opacityAt(x.centreY) + 1e-6, c.name + " " + where + ": " + x.label + " fades like the text")
-            if (d < 100 * view.width / 454 && !x.pinned)
+            check(x.opacity <= fit().opacityAt(x.centreY) + 1e-6, c.name + " " + where + ": " + x.label + " fades like the text")
+            if (d < 100 * view.width / 454)
                 check(Math.abs(x.pillWidth - 0.8 * view.width) < 0.5, c.name + " " + where + ": " + x.label + " is 80% wide near the middle")
         }
+        // Nothing pinned: the pills come after the text, which ends above
+        // the first one shown.
+        var l = lines().filter(function(x) { return x.visible })
+        if (visible.length > 0 && l.length > 0)
+            check(middleOf(l[l.length - 1]) < visible[0].centreY - visible[0].pillHeight / 2,
+                  c.name + " " + where + ": the text ends above the pills")
     }
 
     function centreOf(x) {
@@ -273,17 +289,35 @@ Scene {
                     var p = pills()
                     expectEqual(p.map(function(x) { return x.label }), c.pills, c.name + ": its pills, in order")
                     check(p.every(function(x) { return x.label !== "Snooze" }), c.name + ": no Snooze")
-                    check(p[p.length - 1].label === "Dismiss" && p[p.length - 2].label === "Dismiss all",
-                          c.name + ": Dismiss last, Dismiss all just before it, never last")
-                    var mains = p.filter(function(x) { return x.main })
-                    check(mains.length === 1 && mains[0].label === c.main, c.name + ": its main action is " + c.main)
-                    if (c.pinned) {
-                        check(mains[0].pinned && Math.abs(mains[0].centreY - 0.852 * view.height) < 1,
-                              c.name + ": its main action is pinned at the bottom while the text is read")
-                    }
+                    check(p[0].label === "Dismiss" && p[p.length - 1].label === "Dismiss all",
+                          c.name + ": Dismiss first, Dismiss all last")
+                    var mains = p.filter(function(x) { return x.main }).map(function(x) { return x.label })
+                    expectEqual(mains, c.main ? [c.main] : [], c.name + ": its main action is " + (c.main || "none"))
+                    // The start: the first line near the top, whole; the
+                    // title just below it.
+                    var l = lines().filter(function(x) { return x.visible })
+                    check(f.position === 0, c.name + ": it opens at its start (" + f.position.toFixed(1) + ")")
+                    check(l.length > 1 && Math.abs(middleOf(l[0]) - 0.19 * view.height) < 1.5 && l[0].opacity === 1,
+                          c.name + ": its first line is near the top, whole (" + (l.length ? middleOf(l[0]).toFixed(1) : "none") + ")")
+                    check(l.length > 1 && l[1].text === c.n.summary && middleOf(l[1]) < 0.3 * view.height && l[1].opacity === 1,
+                          c.name + ": its title is next, at the top (" + (l.length > 1 ? middleOf(l[1]).toFixed(1) : "none") + ")")
                     checkPills(c, "at the start")
                 }
                 keep(c.name + "-start", c.name + ": opened", done)
+            },
+            function(done) {
+                // Nothing further up: the start is the top.
+                var f = fit()
+                if (f)
+                    f.positionTo(-200)
+                after(300, function() {
+                    if (f) {
+                        var l = lines().filter(function(x) { return x.visible })
+                        check(f.position === 0 && Math.abs(middleOf(l[0]) - 0.19 * view.height) < 1.5,
+                              c.name + ": it scrolls no further up than its start")
+                    }
+                    done()
+                })
             },
             function(done) { scrollTo(0.5, done) },
             function(done) {
@@ -297,11 +331,9 @@ Scene {
                 if (f) {
                     var p = pills()
                     var last = p[p.length - 1]
-                    check(Math.abs(last.centreY - 0.852 * view.height) < 1 && last.label === "Dismiss",
-                          c.name + ": at the end, Dismiss is where the main one was pinned")
-                    var main = p.filter(function(x) { return x.main })[0]
-                    if (main !== last)
-                        check(!main.pinned && main.centreY < last.centreY, c.name + ": at the end, the main action has left its pin, above the others")
+                    check(Math.abs(last.centreY - 0.852 * view.height) < 1 && last.label === "Dismiss all",
+                          c.name + ": at the end, Dismiss all ends the list at the bottom (" + last.centreY.toFixed(1) + ")")
+                    check(p[0].shown && p[0].centreY < p[1].centreY, c.name + ": at the end, Dismiss is above the others")
                     checkPills(c, "at the end")
                 }
                 keep(c.name + "-end", c.name + ": the end", done)
@@ -328,7 +360,7 @@ Scene {
         for (var i = 0; i < cases.length; i++)
             s = s.concat(steps_for(cases[i]))
         s.push(function(done) {
-            sheet.title = fit() ? "An opened notification, read round-fit, its actions in a round-fit list (P-032)"
+            sheet.title = fit() ? "An opened notification: the title at the top, Dismiss the first pill, nothing pinned (P-042)"
                                 : "An opened notification, before P-032"
             sheet.files = files
             sheet.labels = labels
