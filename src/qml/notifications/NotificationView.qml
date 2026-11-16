@@ -31,29 +31,28 @@ import QtQuick 2.9
 import org.asteroid.controls 1.0
 
 /*
- * One notification, opened (P-032; Sonic Screwdriver's
- * docs/notifications/actions-sketch.md, and docs/mockups/P-032-mockup.html,
- * round 4, which Sam approved). It scrolls with the round fit (RoundFit.qml).
+ * One notification, opened (P-032, and P-042's layout; Sonic Screwdriver's
+ * docs/notifications/actions-sketch.md). It scrolls with the round fit
+ * (RoundFit.qml).
  *  - The text: "App · time" small and grey, the title purple and bold, then
  *    the body, one paragraph per line break. The line at the middle is full
  *    size; each line is scaled to the circle at its height and fades at the
- *    rim. It opens with the title at the middle.
- *  - The actions: while you read, the main one is pinned at the bottom. Once
- *    the text has gone past, it leaves its pin and scrolls up, with the others
- *    below it, all the same size; with more than fit, the list keeps
- *    scrolling until the last one reaches the pin. A pill is as wide as the
- *    circle allows, up to pillWidth near the middle, and fades at the rim like
- *    the text; the pinned one doesn't.
- *  - Which actions: lipstick's pairs, [key, label, ...]. The main one is
- *    "default" when it's listed, else Dismiss. The list: the main action
- *    when it's the default, the notification's other actions in their
- *    order, Dismiss all, and Dismiss last (Sam: "Dismiss all first-safe"):
- *    so at the end, the pin's place holds Dismiss, never Dismiss all. When
- *    Dismiss is the main one, it stays at the pin, and the others rise above
- *    it, fading in as they clear it. A key's tap invokes it: lipstick runs
- *    its remote action, sends ActionInvoked to its owner, and closes the
- *    notification. Dismiss closes it, which ioslink takes as the iPhone's
- *    Clear (Sam: "Dismiss == Clear").
+ *    rim. It opens at the top: the first line near the top of the screen,
+ *    the title just below it (Sam, P-042: "I want the title at the top"),
+ *    and that is as far up as it scrolls.
+ *  - The actions: nothing is pinned. After the text, the pills scroll in like
+ *    it, all the same size, and the list keeps scrolling until the last one
+ *    reaches endAt. A pill is as wide as the circle allows, up to pillWidth
+ *    near the middle, and fades at the rim like the text.
+ *  - Which actions, in this order (Sam, P-042: "I want it to scroll into
+ *    view like the other buttons. I want the other buttons to scroll into
+ *    view below the dismiss button"): Dismiss first; then "default" when
+ *    it's listed, the main action, drawn a shade lighter; the
+ *    notification's other actions in their order (lipstick's pairs, [key,
+ *    label, ...]); and Dismiss all last. A key's tap invokes it: lipstick
+ *    runs its remote action, sends ActionInvoked to its owner, and closes
+ *    the notification. Dismiss closes it, which ioslink takes as the
+ *    iPhone's Clear (Sam: "Dismiss == Clear").
  * The lines and the pills are in the round fit's `tappable` layer, inside its
  * Flickable: a pill's MouseArea gets a tap, and the Flickable takes a drag
  * that starts on a pill over from it, so it scrolls: Qt 5's own pattern for
@@ -89,7 +88,7 @@ Item {
     // is cut with "…". It's laid out once, at the widest pill's width, and
     // scaled with its pill: never laid out again while it scrolls.
     readonly property real labelMinPx: 12
-    // The space between two pills, and between the text and the main pill.
+    // The space between two pills, and between the text and the first pill.
     readonly property real pillGap: 20
     readonly property real textGap: 40
     // A pill's rounded ends stay rimInset inside the circle. As the rim
@@ -98,16 +97,11 @@ Item {
     readonly property real rimInset: 8
     readonly property real squeezeFrom: 1.6
     readonly property real squeezeOver: 0.8
-    // The main pill's centre while you read, as a share of the screen from
-    // the top.
-    readonly property real pinAt: 0.852
-    // The pinned pill's tap area: a band bandWidth of the screen wide, from
-    // bandTop of the height (or just above the pill) down to the rim. A
-    // listed pill's reaches tapMargin around it, so two meet half way.
-    readonly property real bandWidth: 0.60
-    readonly property real bandTop: 0.79
-    // The band reaches at least bandAbove px above the pinned pill.
-    readonly property real bandAbove: 6
+    // Where the first line's middle is when it opens, and the last pill's at
+    // the end of the list, as shares of the screen from the top.
+    readonly property real startAt: 0.19
+    readonly property real endAt: 0.852
+    // A pill's tap area reaches tapMargin around it, so two meet half way.
     readonly property real tapMargin: pillGap / 2
     // The notification's own actions shown at most, the main one included.
     readonly property int maxOwnActions: 3
@@ -118,10 +112,6 @@ Item {
     // by clearFade px at most.
     readonly property real topClear: 0.13
     readonly property real clearFade: 24
-    // Text fades out above the main pill: gone within pillClearance px of
-    // its top, whole pillClearance + pillFade px above it.
-    readonly property real pillClearance: 6
-    readonly property real pillFade: 24
     // Each kind of line: its size, as a multiple of fontPx, its weight and its colour.
     readonly property var kinds: ({
             "caption": { size: 0.6, weight: Font.Normal, color: "#8a929e" },
@@ -145,9 +135,6 @@ Item {
     property var lines: []
     property var pills: []
     property int firstPill: 0
-    // The main pill's index among the pills: the first, or the last when it's
-    // Dismiss.
-    property int mainPill: 0
 
     onNotificationChanged: rebuild()
     onWidthChanged: Qt.callLater(rebuild)
@@ -184,10 +171,10 @@ Item {
         return app !== "" ? app + " · " + timestampStr : timestampStr
     }
 
-    // The pills, in order: { label, action } for one of the notification's
-    // own actions, { label, launcher } for Dismiss and Dismiss all; the main
-    // one has main: true. Dismiss is always last, and Dismiss all just before
-    // it.
+    // The pills, in order: { label, launcher } for Dismiss and Dismiss all,
+    // { label, action } for one of the notification's own actions; "default",
+    // the main one, has main: true. Dismiss is always first, and Dismiss all
+    // last.
     function actionList() {
         var listed = notification && notification.actions ? notification.actions : []
         var main = null
@@ -209,9 +196,7 @@ Item {
         var dismissAll = { label: qsTrId("id-dismiss-all") + localeManager.changesObserver, launcher: "dismiss-all" }
         if (main)
             main.main = true
-        else
-            dismiss.main = true
-        return (main ? [main] : []).concat(own, [dismissAll, dismiss])
+        return [dismiss].concat(main ? [main] : [], own, [dismissAll])
     }
 
     // Greedy word wrap at width, measured by metrics; a word wider than the
@@ -282,28 +267,38 @@ Item {
         }
         for (var j = 0; j < all.length; j++)
             all[j].y = j === 0 ? 0 : all[j - 1].y + all[j - 1].h / 2 + all[j].gap + all[j].h / 2
-        var titleY = all.length > 1 ? all[1].y : 0
-        firstPill = first
-        mainPill = 0
-        for (var m = 0; m < acts.length; m++) {
-            if (acts[m].main)
-                mainPill = m
-        }
-        lines = all.slice(0, first)
-        pills = all.slice(first)
-        rows = all
-        // The end: the last pill where the main one is pinned.
-        var pinY = pinAt * height
-        var lo = 0, hi = all[all.length - 1].y + height
+        var last = all.length - 1
+        // The start: the content's y at the middle that puts the first line at
+        // startAt. The rows move up by it, so that the round fit's own start,
+        // position 0, is there.
+        var topY = startAt * height
+        var lo = 0, hi = all[last].y + height
         for (var b = 0; b < 40; b++) {
             var mid = (lo + hi) / 2
-            if (fit.walk(all, mid)[all.length - 1] > pinY)
+            if (fit.walk(all, mid)[0] > topY)
                 lo = mid
             else
                 hi = mid
         }
+        for (var t = 0; t < all.length; t++)
+            all[t].y -= hi
+        // The end: the last pill at endAt; at the start already when it all fits.
+        var endY = endAt * height
+        lo = 0
+        hi = Math.max(0, all[last].y + height)
+        for (var e = 0; e < 40; e++) {
+            mid = (lo + hi) / 2
+            if (fit.walk(all, mid)[last] > endY)
+                lo = mid
+            else
+                hi = mid
+        }
+        firstPill = first
+        lines = all.slice(0, first)
+        pills = all.slice(first)
+        rows = all
         fit.contentHeight = hi
-        fit.positionTo(Math.min(hi, titleY))
+        fit.positionTo(0)
         Qt.callLater(layout)
     }
 
@@ -322,21 +317,13 @@ Item {
         if (rows.length === 0 || lineItems.count !== lines.length || pillItems.count !== pills.length)
             return
         var Y = fit.walk(rows)
-        var pinY = pinAt * height
-        var mainRow = firstPill + mainPill
-        var mainFlow = Y[mainRow]
-        var pinned = mainFlow > pinY
-        var mainY = pinned ? pinY : mainFlow
-        var mainTop = mainY - rows[mainRow].h / 2
         var clear = topClear * height
         for (var i = 0; i < lines.length; i++) {
             var line = lineItems.itemAt(i)
             var s = fit.scaleAt(Y[i])
-            // Text fades out just above the main pill, so nothing reads behind
-            // it, and below the row of notification icons at the top.
-            var bottom = Y[i] + lines[i].h / 2 * s
-            var o = fit.opacityAt(Y[i]) * Math.max(0, Math.min(1, (mainTop - bottom - pillClearance * px) / (pillFade * px)))
-                    * Math.max(0, Math.min(1, (Y[i] - clear) / (clearFade * px)))
+            // Text fades at the rim, and below the row of notification icons
+            // at the top.
+            var o = fit.opacityAt(Y[i]) * Math.max(0, Math.min(1, (Y[i] - clear) / (clearFade * px)))
             line.visible = o > 0
             if (o > 0) {
                 line.y = Y[i] - line.height / 2
@@ -346,16 +333,11 @@ Item {
         }
         for (var j = 0; j < pills.length; j++) {
             var row = pills[j]
-            var main = j === mainPill
-            var y = main ? mainY : Y[firstPill + j]
+            var y = Y[firstPill + j]
             var w = widthAt(y, row.h)
-            var op = main && pinned ? 1 : fit.opacityAt(y) * Math.max(0, Math.min(1, (w / row.h - squeezeFrom) / squeezeOver))
+            var op = fit.opacityAt(y) * Math.max(0, Math.min(1, (w / row.h - squeezeFrom) / squeezeOver))
                      * Math.max(0, Math.min(1, (y - row.h / 2 - clear + clearFade * px) / (clearFade * px)))
-            // A pill above the pinned one fades out as it nears it, gone where
-            // it would touch it, whole a gap away, as it is at the end.
-            if (pinned && j < mainPill)
-                op *= Math.max(0, Math.min(1, (mainTop - (y + row.h / 2)) / (pillGap * px)))
-            pillItems.itemAt(j).place(y, w, op, main && pinned)
+            pillItems.itemAt(j).place(y, w, op)
         }
     }
 
@@ -451,35 +433,25 @@ Item {
                 readonly property real pillHeight: view.pillHeight * view.px
                 property real pillWidth: 0
                 property real centreY: 0
-                property bool pinned: false
                 property bool shown: false
                 visible: shown
                 readonly property bool main: row.main === true
-                z: main ? 2 : 1
 
-                // Its place at the screen's y, its width w and its opacity;
-                // its tap area around it, or the band under it when pinned.
-                function place(y, w, op, isPinned) {
+                // Its place at the screen's y, its width w and its opacity,
+                // and its tap area around it.
+                function place(y, w, op) {
                     centreY = y
                     pillWidth = w
-                    pinned = isPinned
                     shown = op > 0
                     opacity = op
                     if (!shown)
                         return
                     var top = y - pillHeight / 2
-                    if (isPinned) {
-                        x = (view.width - view.bandWidth * view.width) / 2
-                        width = view.bandWidth * view.width
-                        pill.y = Math.min(view.bandTop * view.height, top - view.bandAbove * view.px)
-                        height = view.height - pill.y
-                    } else {
-                        var m = view.tapMargin * view.px
-                        x = (view.width - w) / 2 - m
-                        width = w + 2 * m
-                        pill.y = top - m
-                        height = pillHeight + 2 * m
-                    }
+                    var m = view.tapMargin * view.px
+                    x = (view.width - w) / 2 - m
+                    width = w + 2 * m
+                    pill.y = top - m
+                    height = pillHeight + 2 * m
                     shape.x = (view.width - w) / 2 - x
                     shape.y = top - pill.y
                     label.scale = Math.min(1, (w - 2 * view.pillPadding * view.px) / Math.max(1, label.contentWidth))
