@@ -12,12 +12,16 @@
  *   - that it centres on now when it comes into view, and the now line;
  *   - the bubble while it scrolls, gone a second after;
  *   - that long titles move only while the screen shows and they're in view;
- *   - that it follows the calendar: a quiet day, then an empty one.
- * Screenshots: at now (13:42), in the morning, while scrolling, a long title
+ *   - that it follows the calendar: a quiet day, then an empty one;
+ *   - the round fit (P-031): the middle Timeline.ZOOM times the size, the
+ *     rows shrinking toward the rim and squeezed, never overlapping, blocks
+ *     that touch still touching, and the header fading while it scrolls.
+ * Screenshots: at now (13:42), at 21:00, at the day's start and its end, in the morning, while scrolling, a long title
  * rolling, the quiet and the empty day, and a contact sheet of them.
  */
 import QtQuick 2.9
 import "qrc:/qml/"
+import "qrc:/qml/timeline.js" as Timeline
 
 Scene {
     id: desktop
@@ -60,6 +64,12 @@ Scene {
         return null
     }
 
+    // The round fit (RoundFit.qml) that the timeline is drawn with.
+    function fit() {
+        return find(today, function(item) { return item.positionTo !== undefined && item.mapY !== undefined })
+    }
+
+    // Its Flickable, which takes the drag.
     function timeline() {
         return find(today, function(item) { return item.flick !== undefined && item.contentY !== undefined })
     }
@@ -74,15 +84,14 @@ Scene {
 
     // The TodayEvent that draws an event.
     function eventItem(title) {
-        return find(timeline(), function(item) {
+        return find(fit(), function(item) {
             return item.block !== undefined && item.animating !== undefined && item.block.title.indexOf(title) === 0
         })
     }
 
     function animatingTitles() {
         var list = []
-        var flick = timeline()
-        var items = flick.contentItem.children
+        var items = fit().children
         for (var i = 0; i < items.length; i++) {
             if (items[i].animating)
                 list.push(items[i].block.title.substring(0, 12))
@@ -91,7 +100,55 @@ Scene {
     }
 
     function centreOn(hours, minutes) {
-        timeline().contentY = (hours * 60 + minutes) * today.ppm - today.centreY
+        fit().positionTo((hours * 60 + minutes) * today.ppm)
+    }
+
+    // The hour labels in view that overlap a block, as "14:00/Review the".
+    function labelsOverBlocks() {
+        var f = fit()
+        var labels = [], events = [], out = []
+        var walk = function(item) {
+            if (item.objectName === "hourLabel")
+                labels.push(item)
+            if (item.block !== undefined && item.animating !== undefined)
+                events.push(item)
+            for (var i = 0; i < item.children.length; i++)
+                walk(item.children[i])
+        }
+        walk(f)
+        labels.forEach(function(l) {
+            if (l.opacity < 0.5 || l.parent.opacity < 0.05 || !l.parent.visible)
+                return
+            var r = l.mapToItem(f, 0, 0, l.contentWidth, l.contentHeight)
+            events.forEach(function(e) {
+                if (!e.visible || e.opacity < 0.05)
+                    return
+                if (r.x < e.x + e.width && e.x < r.x + r.width && r.y < e.y + e.height && e.y < r.y + r.height)
+                    out.push(l.text + "/" + e.block.title.substring(0, 10))
+            })
+        })
+        return out
+    }
+
+    // The blocks in view that overlap another, as "Brunch wit/Call the l".
+    function blocksOverlapping() {
+        var events = []
+        var walk = function(item) {
+            if (item.block !== undefined && item.animating !== undefined && item.visible && item.opacity > 0.05)
+                events.push(item)
+            for (var i = 0; i < item.children.length; i++)
+                walk(item.children[i])
+        }
+        walk(fit())
+        var out = []
+        for (var i = 0; i < events.length; i++) {
+            for (var j = i + 1; j < events.length; j++) {
+                var a = events[i], b = events[j]
+                if (a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height)
+                    out.push(a.block.title.substring(0, 10) + "/" + b.block.title.substring(0, 10))
+            }
+        }
+        return out
     }
 
     // A screenshot, kept for the contact sheet.
@@ -144,8 +201,7 @@ Scene {
             today.visible = false
             today.visible = true
             after(300, function() {
-                var flick = timeline()
-                check(Math.abs(flick.contentY + today.centreY - (13 * 60 + 42) * today.ppm) < 1,
+                check(Math.abs(fit().position - (13 * 60 + 42) * today.ppm) < 1,
                       "it centres on now when it comes into view")
                 check(!today.peeking, "no bubble without scrolling")
                 keep("today-1342", "Now, 13:42", done)
@@ -159,6 +215,72 @@ Scene {
             var red = test.share(file, 104, 225, 270, 6, "#ff453a", 40)
             check(red > 0.15, "the now line shows in red at the middle: " + Math.round(red * 100) + " %")
             done()
+        },
+
+        // The round fit: full size at the middle, smaller toward the rim, and
+        // squeezed there, never overlapping.
+        function(done) {
+            var f = fit()
+            var mid = f.height / 2
+            check(Math.abs(f.scaleAt(mid) - 1.2) < 0.001, "the middle is 1.2 times today's size: " + f.scaleAt(mid))
+            var rim = f.scaleAt(f.height * 0.95)
+            check(rim < 0.6 && rim >= 1.2 * 0.42 - 0.001, "near the rim, a row is about half today's size: " + rim.toFixed(2))
+            var ys = []
+            for (var h = 0; h <= 24; h++)
+                ys.push(f.mapY(h * 60 * today.ppm))
+            var rising = true
+            for (h = 1; h <= 24; h++)
+                rising = rising && ys[h] > ys[h - 1]
+            check(rising, "the hours keep their order: none overlaps")
+            expectEqual(labelsOverBlocks(), [], "at 13:42, no hour label overlaps a block")
+            var near = ys[14] - ys[13], far = ys[16] - ys[15]
+            check(near > far * 1.15 && near > 1.15 * Timeline.PPH * today.px,
+                  "an hour at the middle is taller than today's, and one toward the rim shorter: "
+                  + near.toFixed(0) + " px, then " + far.toFixed(0) + " px")
+            var review = eventItem("Review the watch")
+            check(review.width > block("Review the watch").width * today.px * 1.15,
+                  "the review's block, across the middle, is wider than today's: " + review.width.toFixed(0) + " px")
+            f.positionTo((21 * 60) * today.ppm)
+            after(100, function() {
+                var dinner = eventItem("Dinner"), plan = eventItem("Plan the week")
+                var gap = plan.y - (dinner.y + dinner.height)
+                check(gap >= 0 && gap < 4 * today.px, "blocks that touch keep touching, without overlapping: "
+                      + gap.toFixed(1) + " px apart")
+                expectEqual(labelsOverBlocks(), [], "at 21:00, no hour label overlaps a block")
+                keep("today-2100", "21:00: blocks that touch", done)
+            })
+        },
+        // Events side by side share one scale, so they never overlap, wherever
+        // the middle is: every 15 minutes from 08:30 to 13:00, around the
+        // brunch and the call beside it.
+        function(done) {
+            var seen = []
+            var at = 8 * 60 + 30
+            var next = function() {
+                if (at > 13 * 60) {
+                    expectEqual(seen, [], "no two blocks overlap, from 08:30 to 13:00")
+                    done()
+                    return
+                }
+                fit().positionTo(at * today.ppm)
+                var o = blocksOverlapping()
+                if (o.length)
+                    seen.push(Math.floor(at / 60) + ":" + (at % 60) + " " + o.join(", "))
+                at += 15
+                after(20, next)
+            }
+            next()
+        },
+
+        // The day's start and its end, each at the middle.
+        function(done) {
+            fit().positionTo(0)
+            after(100, function() {
+                keep("today-0000", "The start: 00:00", function() {
+                    fit().positionTo(24 * 60 * today.ppm)
+                    after(100, function() { keep("today-2400", "The end: 24:00", done) })
+                })
+            })
         },
 
         // Long titles move only in view, and only while the screen shows.
@@ -191,10 +313,15 @@ Scene {
         function(done) {
             centreOn(9, 15)
             after(300, function() {
+                expectEqual(labelsOverBlocks(), [], "at 09:15, no hour label overlaps a block")
                 keep("today-0915", "The morning", function() {
                     timeline().flick(0, -900)
                     waitFor(function() { return today.peeking }, 2000, "scrolling brings the bubble", function() {
-                        after(150, function() { keep("today-scrolling", "Scrolling: the time at the middle", done) })
+                        var band = find(today, function(item) { return item.objectName === "todayBand" })
+                        waitFor(function() { return !band.visible }, 2000,
+                                "and the date, the weather and the chips fade out", function() {
+                            keep("today-scrolling", "Scrolling: the whole round day", done)
+                        })
                     })
                 })
             })
@@ -203,7 +330,11 @@ Scene {
             waitFor(function() { return !timeline().moving }, 15000, "the flick stops", function() {
                 after(500, function() {
                     check(today.peeking, "the bubble stays for a second after")
-                    waitFor(function() { return !today.peeking }, 2000, "then fades out", done)
+                    waitFor(function() { return !today.peeking }, 2000, "then fades out", function() {
+                        var band = find(today, function(item) { return item.objectName === "todayBand" })
+                        waitFor(function() { return band.visible && band.opacity === 1 }, 2000,
+                                "and the header comes back", done)
+                    })
                 })
             })
         },
@@ -238,7 +369,7 @@ Scene {
             })
         },
         function(done) {
-            sheet.title = "The Today screen, as a timeline (the approved mockup, on the watch's own Qt)"
+            sheet.title = "The Today screen, a timeline with the round fit (P-031's approved mockup, on the watch's own Qt)"
             sheet.files = files
             sheet.labels = labels
             after(300, function() { shot("today", done, sheet) })

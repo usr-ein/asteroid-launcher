@@ -31,6 +31,7 @@
         <file alias="weathericons.js">qml/today/weathericons.js</file>
         <file alias="timeline.js">qml/today/timeline.js</file>
         <file alias="TodayEvent.qml">qml/today/TodayEvent.qml</file>
+        <file alias="RoundFit.qml">qml/misc/RoundFit.qml</file>
         <file alias="compositor/WindowWrapperBase.qml">qml/compositor/WindowWrapperBase.qml</file>
         <file alias="compositor/CircleMaskShader.qml">qml/compositor/CircleMaskShader.qml</file>
         <file alias="compositor/Flashlight.qml">qml/compositor/Flashlight.qml</file>

@@ -38,8 +38,13 @@
  *   overlap share the width (TodayEvent.qml, timeline.js).
  * - The date and the weather on top, with the all-day events as chips under
  *   them, in a band that stays.
+ * - It scrolls with the round fit (RoundFit.qml, P-031): the time at the
+ *   middle of the screen is drawn Timeline.ZOOM times the sizes, and toward
+ *   the top and the bottom the hours, their labels and the blocks shrink to
+ *   the circle's width and fade, the day squeezed rather than cut.
  * - While it scrolls, a bubble on the right edge shows the time at the middle
- *   of the screen, and fades out a second after it stops.
+ *   of the screen, the date, the weather and the chips fade out so that the
+ *   whole round day shows, and both turn back a second after it stops.
  * - It centres on now whenever it comes into view. Nothing moves while it
  *   is out of view: the clock stops and the titles stand still.
  * The events come from the same AgendaModel as before.
@@ -67,7 +72,7 @@ Item {
     property date now: nowClock.time
     readonly property real nowMinute: now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
     // The time at the middle of the screen, which the bubble shows.
-    readonly property real centreMinute: (timeline.contentY + centreY) / ppm
+    readonly property real centreMinute: timeline.position / ppm
 
     // The day's events: timed ones laid out as blocks, all-day ones as chips.
     property var blocks: []
@@ -187,9 +192,100 @@ Item {
         chips = allDay
     }
 
+    // The round fit, in one pass each time the timeline moves: every hour row,
+    // every block and the now line placed from the same numbers, assigned
+    // rather than bound, so that a frame costs one walk over the day (P-031:
+    // a binding each ran at about half the frame rate on the watch).
+    // - A block: its top and its bottom mapped apart, so that blocks that
+    //   touch keep touching; as wide as at the point of its cluster (the events
+    //   that overlap it) nearest the middle, the same for all of them, so that
+    //   side by side they never overlap; its insides at the size of the height
+    //   its title is at.
+    // - A label stops at the leftmost block edge at its height, since a block
+    //   keeps its width where it is nearest the middle while a label lower
+    //   down shrinks toward the middle.
+    function layout() {
+        var f = timeline
+        if (!f || f.width <= 0)
+            return
+        var h = f.height
+        var mid = h / 2
+        var off = 60 * px
+        var edges = []
+        for (var i = 0; i < events.count; i++) {
+            var item = events.itemAt(i)
+            if (!item)
+                continue
+            var b = item.block
+            var top = f.mapY((b.top + 1) * px)
+            var bottom = f.mapY((b.top + b.height - 1) * px)
+            if (bottom < -off || top > h + off) {
+                item.visible = false
+                continue
+            }
+            var near = Math.max(top, Math.min(bottom, mid))
+            // Its cluster's scale: at the point of the cluster, all the events
+            // that overlap it, nearest the middle; one for them all.
+            var ctop = f.mapY((b.clusterTop + 1) * px)
+            var cbottom = f.mapY((b.clusterBottom - 1) * px)
+            var k = f.scaleAt(Math.max(ctop, Math.min(cbottom, mid)))
+            var o = f.opacityAt(near)
+            item.x = f.mapX(b.x * px, k)
+            item.y = top
+            item.width = b.width * px * k
+            item.height = Math.max(0, bottom - top)
+            item.textScale = f.scaleAt(top + 14 * px * k)
+            item.opacity = o
+            item.visible = o > 0
+            if (o > 0)
+                edges.push({ top: b.top, bottom: b.top + b.height, left: item.x })
+        }
+        // The x at which a label at the content's y (the timeline's own px)
+        // ends, at its row's own size, its row scaled by k.
+        var labelRight = function(right, y, k) {
+            var left = Infinity
+            for (var e = 0; e < edges.length; e++) {
+                if (edges[e].top - 10 < y && y < edges[e].bottom + 10)
+                    left = Math.min(left, edges[e].left)
+            }
+            if (left === Infinity)
+                return right
+            return Math.min(right, f.originX + (left - 6 * px - f.originX) / k)
+        }
+        for (var m = 0; m < hours.count; m++) {
+            var row = hours.itemAt(m)
+            if (!row)
+                continue
+            var y = f.mapY(m * 60 * ppm)
+            if (y < -off || y > h + off) {
+                row.visible = false
+                continue
+            }
+            var rk = f.scaleAt(y)
+            var ro = f.opacityAt(y)
+            row.y = y
+            row.k = rk
+            row.opacity = ro
+            row.visible = ro > 0
+            if (ro > 0)
+                row.labelRight = labelRight(102 * px, m * Timeline.PPH, rk)
+        }
+        var ny = f.mapY(nowMinute * ppm)
+        var nk = f.scaleAt(ny)
+        nowLine.y = ny
+        nowLine.k = nk
+        nowLine.opacity = f.opacityAt(ny)
+        nowLine.visible = nowLine.opacity > 0
+        nowLine.labelRight = labelRight(94 * px, nowMinute * Timeline.PPH / 60, nk)
+    }
+
+    onNowMinuteChanged: layout()
+    // Fewer events or none adds no delegate: lay out again anyway, so that no
+    // label keeps to the edge of a block that is gone.
+    onBlocksChanged: Qt.callLater(layout)
+
     function centreOnNow() {
-        timeline.cancelFlick()
-        timeline.contentY = nowMinute * ppm - centreY
+        timeline.positionTo(nowMinute * ppm)
     }
 
     onVisibleChanged: if (visible) centreOnNow()
@@ -206,16 +302,13 @@ Item {
         color: "black"
     }
 
-    Flickable {
+    RoundFit {
         id: timeline
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: 24 * Timeline.PPH * px
-        // 00:00 and 24:00 can each reach the middle of the screen.
-        topMargin: centreY
-        bottomMargin: height - centreY
-        flickableDirection: Flickable.VerticalFlick
-        boundsBehavior: Flickable.StopAtBounds
+        contentHeight: 24 * Timeline.PPH * today.px
+        zoom: Timeline.ZOOM
+        rowWidth: (Timeline.ROW_RIGHT - Timeline.ROW_LEFT) * today.px
+        originX: (Timeline.ROW_LEFT + Timeline.ROW_RIGHT) / 2 * today.px
 
         onMovingChanged: {
             if (moving) {
@@ -226,23 +319,34 @@ Item {
             }
         }
 
+        onPositionChanged: today.layout()
+        onTableChanged: today.layout()
+
+        // Each hour: a row, its faint line across and its label on the left,
+        // placed by layout().
         Repeater {
+            id: hours
             model: 25
+            onItemAdded: Qt.callLater(today.layout)
 
             Item {
                 readonly property int minute: index * 60
-                y: index * Timeline.PPH * today.px
+                property real k: 1
+                property real labelRight: 102 * today.px
                 width: timeline.width
+                visible: false
+                transform: Scale { origin.x: timeline.originX; xScale: k; yScale: k }
 
                 Rectangle {
                     x: Timeline.X0 * today.px
-                    width: (454 - Timeline.X0 - 76) * today.px
+                    width: (Timeline.X1 - Timeline.X0) * today.px
                     height: Math.max(1, today.px)
                     color: "#1b1f26"
                 }
 
                 Text {
-                    x: 102 * today.px - width
+                    objectName: "hourLabel"
+                    x: parent.labelRight - width
                     anchors.verticalCenter: parent.top
                     anchors.verticalCenterOffset: 2 * today.px
                     text: Timeline.hourLabel(index, use12H.value)
@@ -256,27 +360,34 @@ Item {
             }
         }
 
+        // Each event, placed by layout().
         Repeater {
+            id: events
             model: today.blocks
+            onItemAdded: Qt.callLater(today.layout)
 
             TodayEvent {
                 block: modelData
                 px: today.px
+                visible: false
                 // Only while the screen shows, and the block is in view.
-                active: today.visible && y + height > timeline.contentY
-                        && y < timeline.contentY + timeline.height
+                active: today.visible && visible
             }
         }
 
         Item {
             id: nowLine
+            property real k: 1
+            property real labelRight: 94 * today.px
             z: 2
-            y: today.nowMinute * today.ppm
             width: timeline.width
+            visible: false
+            transform: Scale { origin.x: timeline.originX; xScale: nowLine.k; yScale: nowLine.k }
 
             Rectangle {
                 x: 104 * today.px
-                width: (454 - 104 - 76) * today.px
+                y: -1 * today.px
+                width: (Timeline.X1 - 104) * today.px
                 height: 2 * today.px
                 color: "#ff453a"
             }
@@ -289,7 +400,7 @@ Item {
                 color: "#ff453a"
             }
             Text {
-                x: 94 * today.px - width
+                x: nowLine.labelRight - width
                 anchors.verticalCenter: parent.top
                 anchors.verticalCenterOffset: 1 * today.px
                 text: Timeline.formatTime(today.now, use12H.value)
@@ -315,9 +426,14 @@ Item {
     // The date, the weather and the all-day events, over the timeline.
     Item {
         id: band
+        objectName: "todayBand"
         z: 3
         width: parent.width
         height: 118 * px
+        opacity: today.peeking ? 0 : 1
+        visible: opacity > 0
+
+        Behavior on opacity { NumberAnimation { duration: today.peeking ? 120 : 350 } }
 
         Rectangle {
             width: parent.width
