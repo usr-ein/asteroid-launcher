@@ -52,8 +52,8 @@ import org.asteroid.controls 1.0
  *    takes as the iPhone's Clear (Sam: "Dismiss == Clear").
  * The lines and the pills are in the round fit's `tappable` layer, inside its
  * Flickable: a pill's MouseArea gets a tap, and the Flickable takes a drag
- * that starts on a pill over from it, so it scrolls. (A TapHandler there
- * took the harness's mouse taps but not the watch's touches.)
+ * that starts on a pill over from it, so it scrolls: Qt 5's own pattern for
+ * taps in a Flickable, with the watch's touches as with the harness's mouse.
  * The view plays no sound: lipstick plays each notification's own
  * x-nemo-feedback event through ngfd once, and the active profile decides
  * whether it sounds or vibrates.

@@ -42,8 +42,7 @@
  * the Flickable that stays put on the screen, placed in the screen's
  * coordinates like the others. The Flickable sees their press first, and
  * takes it over when it turns into a drag; a MouseArea there gets its click
- * otherwise (NotificationView.qml's pills, P-032). A TapHandler there took
- * mouse taps in the harness, but not the watch's touches.
+ * otherwise (NotificationView.qml's pills, P-032).
  *
  * Its shape is the constants below, the reader's own; a screen's sizes are
  * its own constants (the Today screen's: timeline.js).
