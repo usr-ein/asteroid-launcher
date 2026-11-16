@@ -45,7 +45,6 @@
 #include "firstrun.h"
 #include "launcherlocalemanager.h"
 #include "gesturefilterarea.h"
-#include "notificationsnoozer.h"
 #include "launchertypes.h"
 
 int main(int argc, char **argv)

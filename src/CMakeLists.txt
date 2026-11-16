@@ -7,8 +7,7 @@ set(SRC
 	applauncher.cpp
 	applistmodel.cpp
 	buttondoubleclick.cpp
-	launchertypes.cpp
-	notificationsnoozer.cpp)
+	launchertypes.cpp)
 set(HEADERS
 	applauncherbackground.h
 	firstrun.h
@@ -17,8 +16,7 @@ set(HEADERS
 	applauncher.h
 	applistmodel.h
 	buttondoubleclick.h
-	launchertypes.h
-	notificationsnoozer.h)
+	launchertypes.h)
 
 add_executable(asteroid-launcher ${SRC} ${HEADERS} resources-qml.qrc)
 
@@ -27,8 +25,7 @@ target_link_libraries(asteroid-launcher PRIVATE
 	Qt5::WaylandCompositor
 	Qt5::DBus
 	Mlite5::Mlite5
-	Lipstick::Lipstick
-	Timed::Timed)
+	Lipstick::Lipstick)
 
 install(TARGETS asteroid-launcher
 	DESTINATION ${CMAKE_INSTALL_BINDIR})

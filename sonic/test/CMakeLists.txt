@@ -15,7 +15,6 @@ find_package(Qt5 COMPONENTS Quick DBus REQUIRED)
 find_package(Mlite5 REQUIRED)
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(Timed REQUIRED IMPORTED_TARGET timed-qt5)
 
 # Every class that registerLauncherTypes() registers, as in the launcher.
 add_executable(launcher-test
@@ -26,10 +25,9 @@ add_executable(launcher-test
 	${launcher}/applistmodel.cpp
 	${launcher}/buttondoubleclick.cpp
 	${launcher}/gesturefilterarea.cpp
-	${launcher}/notificationsnoozer.cpp
 	${launcher}/resources-qml.qrc)
 target_include_directories(launcher-test PRIVATE ${launcher} ${Lipstick_INCLUDE_DIRS})
-target_link_libraries(launcher-test PRIVATE Qt5::Quick Qt5::DBus Mlite5::Mlite5 PkgConfig::Timed ${Lipstick_LIBRARIES})
+target_link_libraries(launcher-test PRIVATE Qt5::Quick Qt5::DBus Mlite5::Mlite5 ${Lipstick_LIBRARIES})
 
 pkg_check_modules(Calendar REQUIRED IMPORTED_TARGET libmkcal-qt5 KF5CalendarCore)
 add_executable(seed-calendar seed-calendar.cpp)

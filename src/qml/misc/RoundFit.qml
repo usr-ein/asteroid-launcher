@@ -30,6 +30,20 @@
  * than a binding each: on the watch, a binding per piece halved the frame
  * rate of the Today screen (P-031). Today.qml's layout() is the example.
  *
+ * Rows that keep their own height, such as buttons among lines of text,
+ * can't follow mapY: it squeezes all the content toward the rim, and a row
+ * that keeps its height would overlap its neighbours there. walk(rows) places
+ * them instead, as the reader does: the opened notification's lines and
+ * pills (NotificationView.qml, P-032).
+ *
+ * The pieces are drawn above the Flickable that scrolls them, which then
+ * never sees a press on a piece that takes it: a TapHandler or a MouseArea
+ * on one would stop the scroll from there. Such pieces go in `tappable`
+ * instead: a layer inside the Flickable that stays put on the screen, placed
+ * in the screen's coordinates like the others. The Flickable sees their
+ * press first, and takes it over when it turns into a drag; a TapHandler
+ * there gets its tap otherwise (NotificationView.qml's pills, P-032).
+ *
  * Its shape is the constants below, the reader's own; a screen's sizes are
  * its own constants (the Today screen's: timeline.js).
  */
@@ -61,6 +75,9 @@ Item {
     readonly property real position: (flick.contentY + flick.topMargin) / zoom
     readonly property alias moving: flick.moving
     readonly property real radius: Math.min(width, height) / 2
+    // The layer for pieces that take taps (see above): the screen's size and
+    // coordinates, inside the Flickable.
+    readonly property alias tappable: screenLayer
 
     function positionTo(y) {
         flick.cancelFlick()
@@ -117,6 +134,47 @@ Item {
         return height / 2 + (d < 0 ? -Y : Y)
     }
 
+    // The reader's placement (Sonic Screwdriver's ai/watch/RoundText.qml,
+    // place()), for rows of their own heights: from the row nearest the
+    // middle outward, each step the two rows' half heights and the gap
+    // between them, each at its own scale, so that none overlap. A row is
+    // { y, h, gap, fixed }: y its middle in the content, h its height and gap
+    // the space before it, at the content's own size; fixed for a row whose
+    // height doesn't zoom, such as a button, which then counts at its own
+    // size. A row's scale is scaleAt at its middle, not its top, or a tall row
+    // would overlap its neighbour below the middle. It returns each row's
+    // screen y, its middle, with the content's `at` at the middle (the
+    // position when left out).
+    function walk(rows, at) {
+        var pos = at === undefined ? position : at
+        var n = rows.length
+        var Y = new Array(n)
+        if (n === 0)
+            return Y
+        var c = 0
+        for (var i = 1; i < n; i++) {
+            if (Math.abs(rows[i].y - pos) < Math.abs(rows[c].y - pos))
+                c = i
+        }
+        Y[c] = height / 2 + (rows[c].y - pos) * zoom
+        var a, b, sa, sb
+        for (var j = c + 1; j < n; j++) {
+            a = rows[j - 1]
+            b = rows[j]
+            sa = a.fixed ? 1 : scaleAt(Y[j - 1])
+            sb = b.fixed ? 1 : scaleAt(Y[j - 1] + (a.h / 2 + b.gap + b.h / 2) * sa)
+            Y[j] = Y[j - 1] + a.h / 2 * sa + b.gap * (sa + sb) / 2 + b.h / 2 * sb
+        }
+        for (var k = c - 1; k >= 0; k--) {
+            a = rows[k + 1]
+            b = rows[k]
+            sa = a.fixed ? 1 : scaleAt(Y[k + 1])
+            sb = b.fixed ? 1 : scaleAt(Y[k + 1] - (a.h / 2 + a.gap + b.h / 2) * sa)
+            Y[k] = Y[k + 1] - a.h / 2 * sa - a.gap * (sa + sb) / 2 - b.h / 2 * sb
+        }
+        return Y
+    }
+
     onWidthChanged: Qt.callLater(makeTable)
     onHeightChanged: Qt.callLater(makeTable)
     onZoomChanged: Qt.callLater(makeTable)
@@ -137,5 +195,14 @@ Item {
         bottomMargin: height / 2
         flickableDirection: Flickable.VerticalFlick
         boundsBehavior: Flickable.StopAtBounds
+
+        // In the content, at the content's y that's at the top of the
+        // screen: so it stays put while the content moves.
+        Item {
+            id: screenLayer
+            y: flick.contentY
+            width: flick.width
+            height: flick.height
+        }
     }
 }

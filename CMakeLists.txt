@@ -21,7 +21,6 @@ include(AsteroidTranslations)
 find_package(Qt5 COMPONENTS Quick WaylandCompositor DBus REQUIRED)
 find_package(Mlite5 REQUIRED)
 find_package(Lipstick REQUIRED)
-find_package(Timed REQUIRED)
 
 ecm_find_qmlmodule(org.nemomobile.calendar 1.0)
 ecm_find_qmlmodule(org.nemomobile.systemsettings 1.0)
