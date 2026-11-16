@@ -103,6 +103,33 @@ Scene {
         fit().positionTo((hours * 60 + minutes) * today.ppm)
     }
 
+    // The hour labels in view that overlap a block, as "14:00/Review the".
+    function labelsOverBlocks() {
+        var f = fit()
+        var labels = [], events = [], out = []
+        var walk = function(item) {
+            if (item.objectName === "hourLabel")
+                labels.push(item)
+            if (item.block !== undefined && item.animating !== undefined)
+                events.push(item)
+            for (var i = 0; i < item.children.length; i++)
+                walk(item.children[i])
+        }
+        walk(f)
+        labels.forEach(function(l) {
+            if (l.opacity < 0.5 || l.parent.opacity < 0.05 || !l.parent.visible)
+                return
+            var r = l.mapToItem(f, 0, 0, l.contentWidth, l.contentHeight)
+            events.forEach(function(e) {
+                if (!e.visible || e.opacity < 0.05)
+                    return
+                if (r.x < e.x + e.width && e.x < r.x + r.width && r.y < e.y + e.height && e.y < r.y + r.height)
+                    out.push(l.text + "/" + e.block.title.substring(0, 10))
+            })
+        })
+        return out
+    }
+
     // A screenshot, kept for the contact sheet.
     function keep(name, label, done) {
         files.push(shots + "/" + name + ".png")
@@ -184,6 +211,7 @@ Scene {
             for (h = 1; h <= 24; h++)
                 rising = rising && ys[h] > ys[h - 1]
             check(rising, "the hours keep their order: none overlaps")
+            expectEqual(labelsOverBlocks(), [], "at 13:42, no hour label overlaps a block")
             var near = ys[14] - ys[13], far = ys[16] - ys[15]
             check(near > far * 1.15 && near > 1.15 * Timeline.PPH * today.px,
                   "an hour at the middle is taller than today's, and one toward the rim shorter: "
@@ -197,6 +225,7 @@ Scene {
                 var gap = plan.y - (dinner.y + dinner.height)
                 check(gap >= 0 && gap < 4 * today.px, "blocks that touch keep touching, without overlapping: "
                       + gap.toFixed(1) + " px apart")
+                expectEqual(labelsOverBlocks(), [], "at 21:00, no hour label overlaps a block")
                 keep("today-2100", "21:00: blocks that touch", done)
             })
         },
@@ -241,6 +270,7 @@ Scene {
         function(done) {
             centreOn(9, 15)
             after(300, function() {
+                expectEqual(labelsOverBlocks(), [], "at 09:15, no hour label overlaps a block")
                 keep("today-0915", "The morning", function() {
                     timeline().flick(0, -900)
                     waitFor(function() { return today.peeking }, 2000, "scrolling brings the bubble", function() {

@@ -192,6 +192,37 @@ Item {
         chips = allDay
     }
 
+    // A block's horizontal scale: the round fit's at the block's point
+    // nearest the middle of the screen.
+    function blockScale(b) {
+        var top = timeline.mapY((b.top + 1) * px)
+        var bottom = timeline.mapY((b.top + b.height - 1) * px)
+        return timeline.scaleAt(Math.max(top, Math.min(bottom, timeline.height / 2)))
+    }
+
+    // The screen x of the leftmost block edge at the content's y (at the
+    // timeline's own size), give or take a label's half height; Infinity
+    // without a block there. A block takes its width where it is nearest the
+    // middle, and a label lower down shrinks toward the middle, so a label
+    // stops there instead of sliding under the block.
+    function blocksLeftAt(y) {
+        var left = Infinity
+        var margin = 10
+        for (var i = 0; i < blocks.length; i++) {
+            var b = blocks[i]
+            if (b.top - margin < y && y < b.top + b.height + margin)
+                left = Math.min(left, timeline.mapX(b.x * px, blockScale(b)))
+        }
+        return left
+    }
+
+    // A label's x, at its row's own size, whose right edge is `right` unless a
+    // block's left edge at its height comes first; its row is scaled by k.
+    function labelRight(right, y, k) {
+        var limit = blocksLeftAt(y) - 6 * px
+        return Math.min(right, timeline.originX + (limit - timeline.originX) / k)
+    }
+
     function centreOnNow() {
         timeline.positionTo(nowMinute * ppm)
     }
@@ -249,7 +280,8 @@ Item {
                 }
 
                 Text {
-                    x: 102 * today.px - width
+                    objectName: "hourLabel"
+                    x: today.labelRight(102 * today.px, minute * Timeline.PPH / 60, parent.k) - width
                     anchors.verticalCenter: parent.top
                     anchors.verticalCenterOffset: 2 * today.px
                     text: Timeline.hourLabel(index, use12H.value)
@@ -273,7 +305,7 @@ Item {
                 readonly property real topY: timeline.mapY((modelData.top + 1) * today.px)
                 readonly property real bottomY: timeline.mapY((modelData.top + modelData.height - 1) * today.px)
                 readonly property real near: Math.max(topY, Math.min(bottomY, timeline.height / 2))
-                readonly property real k: timeline.scaleAt(near)
+                readonly property real k: today.blockScale(modelData)
                 block: modelData
                 px: today.px
                 textScale: timeline.scaleAt(topY + 14 * today.px * k)
@@ -315,7 +347,7 @@ Item {
                 color: "#ff453a"
             }
             Text {
-                x: 94 * today.px - width
+                x: today.labelRight(94 * today.px, today.nowMinute * Timeline.PPH / 60, nowLine.k) - width
                 anchors.verticalCenter: parent.top
                 anchors.verticalCenterOffset: 1 * today.px
                 text: Timeline.formatTime(today.now, use12H.value)
