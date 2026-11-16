@@ -36,6 +36,7 @@ done <<-END
 	asteroid-stopwatch|Stopwatch|ios-stopwatch-outline|#9800A6|#0C0009
 	asteroid-timer|Timer|ios-timer-outline|#A6005F|#0C0003
 	asteroid-weather|Weather|ios-cloudy-outline|#990019|#0C0200
+	sonic-ai|AI|ios-planet-outline|#7C4DFF|#12062B
 	sonic-checkin|Check-in|ios-happy-outline|#11868F|#021314
 	sonic-weather|Weather|ios-cloudy-outline|#990019|#0C0200
 	sonic-timer|Timer|ios-timer-outline|#A6005F|#0C0003

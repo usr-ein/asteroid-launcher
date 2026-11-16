@@ -179,20 +179,118 @@ Item {
         // ambient, on the home's face page, whatever the face shows, and never
         // in an app or on another panel. voiceNote does the rest, and nothing
         // with no ioslink.
+        //
+        // In the AI app (the main repo's ai/SKETCH.md § 12.1), the hold is the
+        // app's, not a voice note: with the display lit and the app in front,
+        // each step goes to it over the session bus (aiButton), and the app
+        // records into the thread it shows. The hold that started there stays
+        // the app's to its end.
+        property bool toAi: false
         onHoldStarted: {
+            toAi = VoiceButton.toApp(comp.displayOn, Lipstick.compositor.displayAmbient,
+                                     Lipstick.compositor.homeActive, aiButton.inFront())
+            if (toAi) {
+                aiButton.send("Down", [{"type": "x", "value": pressedAt}])
+                return
+            }
             var grid = Desktop.panelsGrid
             if (VoiceButton.canRecord(comp.displayOn, Lipstick.compositor.displayAmbient,
                                       Lipstick.compositor.homeActive,
                                       grid ? grid.currentHorizontalPos : -1, grid ? grid.currentVerticalPos : -1))
                 voiceNote.start(pressedAt)
         }
-        onHoldConfirmed: voiceNote.confirm()
-        onHoldEnded: voiceNote.end(releasedAt, confirmed)
+        onHoldConfirmed: {
+            if (toAi)
+                aiButton.send("Held", [])
+            else
+                voiceNote.confirm()
+        }
+        onHoldEnded: {
+            if (toAi)
+                aiButton.send("Up", [{"type": "x", "value": releasedAt}, {"type": "b", "value": confirmed}])
+            else
+                voiceNote.end(releasedAt, confirmed)
+            toAi = false
+        }
         // The note is latched: the release does nothing, and the next press of
         // the button stops it, at that press, and means nothing else. Presses
-        // during the "Saved" screen are ignored too.
-        captured: voiceNote.recording || voiceOverlay.shown
-        onCapturedPressed: voiceNote.stop(pressedAt)
+        // during the "Saved" screen are ignored too. The AI app's note is
+        // latched the same way, while it's in front and ioslink says a note
+        // records: that press is the app's Press.
+        captured: voiceNote.recording || voiceOverlay.shown || aiButton.capturing
+        onCapturedPressed: {
+            if (voiceNote.recording || voiceOverlay.shown)
+                voiceNote.stop(pressedAt)
+            else
+                aiButton.send("Press", [{"type": "x", "value": pressedAt}])
+        }
+    }
+
+    // The AI app's button (the main repo's ai/BUS.md, org.sonicscrewdriver.ai.Button):
+    // Down(x pressedAt), Held(), Up(x releasedAt, b confirmed) and Press(x
+    // pressedAt), times on the boot-time clock, as ButtonDoubleClick gives them.
+    // The app is the window in front whose process runs sonic-ai (its booster's
+    // library, /usr/lib/sonic-ai.so). A call to an app without the interface
+    // fails, and the press does nothing, as before.
+    DBusInterface {
+        id: aiButton
+        bus: DBus.SessionBus
+        service: "org.sonicscrewdriver.ai"
+        path: "/org/sonicscrewdriver/ai"
+        iface: "org.sonicscrewdriver.ai.Button"
+
+        // Whether ioslink's VoiceNotes State names a note recording
+        // (bridge/PROTOCOL.md § 6.14.4).
+        property bool noteRecording: false
+        // The app in front, and the display lit: the AI app's note captures
+        // the next press. It ends by itself when ioslink's note does.
+        readonly property bool capturing: noteRecording && aiFront
+        property bool aiFront: false
+
+        function inFront() {
+            var w = comp.topmostWindow
+            return !!(w && w !== comp.homeWindow && w.window
+                      && appLauncher.commandLine(w.window.processId).indexOf("sonic-ai") !== -1)
+        }
+
+        function send(method, args) {
+            typedCall(method, args, undefined, function(error, message) {
+                console.log("aiButton:", method, "failed:", error, message)
+            })
+        }
+
+        function voiceState(json) {
+            var state = null
+            try { state = JSON.parse(json || "{}") } catch (e) { state = null }
+            noteRecording = !!(state && state.recording && state.recording.id)
+        }
+    }
+
+    // The AI app in front, followed as windows come and go and the display
+    // changes.
+    Binding {
+        target: aiButton
+        property: "aiFront"
+        value: comp.topmostWindow !== null && comp.displayOn && !Lipstick.compositor.displayAmbient
+               && aiButton.inFront()
+    }
+
+    // ioslink's VoiceNotes State, read as VoiceNoteOverlay.qml reads it: Nemo.DBus
+    // follows its PropertiesChanged into `state`, while ioslink is on the bus.
+    Loader {
+        active: voiceNotesBus.status === DBusInterface.Available
+        onActiveChanged: if (!active)
+            aiButton.voiceState("")
+        sourceComponent: DBusInterface {
+            bus: DBus.SessionBus
+            service: "org.sonicscrewdriver.ioslink"
+            path: "/org/sonicscrewdriver/ioslink"
+            iface: "org.sonicscrewdriver.ioslink.VoiceNotes"
+            propertiesEnabled: true
+            property string state: ""
+            onStateChanged: aiButton.voiceState(state)
+            Component.onDestruction: aiButton.voiceState("")
+        }
     }
 
     AppLauncher {
