@@ -36,10 +36,12 @@ Item {
 
     property QtObject panelsGrid
     property QtObject firstNotifView: null
-    property bool forbidTop: firstNotifView !== null ? firstNotifView.forbidTop : false
     property bool modelEmpty: notifModel.itemCount === 0
 
-    onForbidTopChanged: panelsGrid.changeAllowedDirections()
+    // Each notification is a panel of its own, a NotificationView, the first
+    // one in this panel itself. The panel of actions that each had above it
+    // (Snooze, Dismiss all, Dismiss) is gone: the view lists its actions
+    // after its text (P-032).
 
     NotificationListModel {
         id: notifModel
@@ -49,30 +51,25 @@ Item {
             var leftPanelIndex = notifModel.itemCount-1
             while(leftPanelIndex > index) {
                 if(leftPanelIndex == 1 && firstNotifView !== null) {
-                    panelsGrid.movePanel(-1, -1, -2, -1)
                     var notif = firstNotifView.notification
                     firstNotifView.destroy()
                     var notifView = panelsGrid.addPanel(-2, 0, notificationViewComp)
                     notifView.visible = false
                     notifView.notification = notif
+                    notifView.notificationModel = notifModel
                     notifView.panelsGrid = panelsGrid
                 } else if(firstNotifView !== null) {
                     panelsGrid.movePanel(-leftPanelIndex, 0, (-leftPanelIndex-1), 0)
-                    panelsGrid.movePanel(-leftPanelIndex, -1, (-leftPanelIndex-1), -1)
                 }
 
                 leftPanelIndex--
             }
-                    
-            var notifActions = panelsGrid.addPanel(-index-1, -1, notificationActionsComp)
-            notifActions.visible = false
-            notifActions.notification = item
-            notifActions.panelsGrid = panelsGrid
-            notifActions.notificationModel = notifModel
+
             if(index > 0) {
                 var notifView = panelsGrid.addPanel(-index-1, 0, notificationViewComp)
                 notifView.visible = false
                 notifView.notification = item
+                notifView.notificationModel = notifModel
                 notifView.panelsGrid = panelsGrid
             } else {
                 firstNotifView = notificationViewComp.createObject(notifPanel)
@@ -82,6 +79,7 @@ Item {
                 firstNotifView.width = Qt.binding(function() { return notifPanel.width })
                 firstNotifView.height = Qt.binding(function() { return notifPanel.height })
                 firstNotifView.notification = item
+                firstNotifView.notificationModel = notifModel
                 firstNotifView.panelsGrid = panelsGrid
             }
 
@@ -94,19 +92,11 @@ Item {
                     panelsGrid.removePanel(-i, 0)
                 else
                     firstNotifView.destroy()
-
-                panelsGrid.removePanel(-i, -1)
             }
 
             for (var i = last+2 ; i <= notifModel.itemCount+1; i++) {
                 if(i == last-first+2) {
                     panelsGrid.removePanel(-i, 0)
-                    panelsGrid.removePanel(-i, -1)
-
-                    var notifActions = panelsGrid.addPanel(-1, -1, notificationActionsComp)
-                    notifActions.visible = false
-                    notifActions.notification = notifModel.get(0)
-                    notifActions.notificationModel = notifModel
 
                     firstNotifView = notificationViewComp.createObject(notifPanel)
                     firstNotifView.x = 0
@@ -114,10 +104,10 @@ Item {
                     firstNotifView.width = Qt.binding(function() { return notifPanel.width })
                     firstNotifView.height = Qt.binding(function() { return notifPanel.height })
                     firstNotifView.notification = notifModel.get(0)
+                    firstNotifView.notificationModel = notifModel
                     firstNotifView.panelsGrid = panelsGrid
                 } else {
                     panelsGrid.movePanel(-i, 0, -i+(last-first+1), 0)
-                    panelsGrid.movePanel(-i, -1, -i+(last-first+1), -1)
                 }
             }
 
@@ -129,10 +119,6 @@ Item {
         }
     }
 
-    Component {
-        id: notificationActionsComp
-        NotificationActions {}
-    }
     Component {
         id: notificationViewComp
         NotificationView    {}
