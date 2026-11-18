@@ -7,7 +7,6 @@
  * file of the same name with NoDisplay=true in /usr/local/share/applications
  * (sonic/hide-apps.sh writes them) or ~/.local/share/applications.
  *
- * AI (sonic-ai, the main repo's ai/watch/) comes first (Sam, 2026-11-15, P-019).
  * Heart Rate, Weather, Timer and Stopwatch are Sonic Screwdriver's own,
  * sonic-heartrate, sonic-weather, sonic-timer and sonic-stopwatch; the stock
  * asteroid-hrm, asteroid-weather, asteroid-timer and asteroid-stopwatch, which
@@ -20,7 +19,6 @@ import org.asteroid.launcher 1.0
 AppListModel {
     sourceModel: LauncherModel { }
     order: [
-        "sonic-ai",
         "sonic-checkin",
         "asteroid-alarmclock",
         "sonic-heartrate",

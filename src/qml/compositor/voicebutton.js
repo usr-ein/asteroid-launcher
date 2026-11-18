@@ -36,11 +36,3 @@ function canRecord(displayOn, ambient, homeActive, panelX, panelY) {
         return true
     return !!homeActive && panelX === 0 && panelY === 0
 }
-
-// Whether a hold goes to the app in front instead (the main repo's
-// ai/SKETCH.md § 12.1): only with the display lit (on, not ambient), an app in
-// front rather than the home, and that app one that takes the button, the AI
-// app. Anywhere else canRecord decides, as before.
-function toApp(displayOn, ambient, homeActive, appTakesButton) {
-    return !!displayOn && !ambient && !homeActive && !!appTakesButton
-}
