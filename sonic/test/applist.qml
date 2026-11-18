@@ -4,7 +4,7 @@
  * The app list scene of sonic/test/test.sh: the fork's horizontal app list,
  * compiled in, over lipstick's real LauncherModel and the watch's apps
  * (run.sh), set up as MainScreen sets it up (AppList.qml). It checks:
- *   - the order: AI, then Check-in, then the PRD's apps, then the others by
+ *   - the order: Check-in first, then the PRD's apps, then the others by
  *     title;
  *   - that lipstick itself honours no override, in ~/.local/share/applications
  *     or in /usr/local/share/applications, and that AppListModel honours both;
@@ -13,7 +13,7 @@
  *     alone;
  *   - that the list goes back to its first app once left for the watch face,
  *     and keeps its page when brought back at once;
- *   - the look: AI and each of the eight apps show its own logo (sonic/icons/), read
+ *   - the look: each of the eight apps shows its own logo (sonic/icons/), read
  *     back from the screenshot by its colours, any other app the stock
  *     drawing in the dark theme's grey, and the names in sentence case.
  * Screenshots: each page, with every app and with the four hidden, and a
@@ -79,17 +79,16 @@ Scene {
     // stock asteroid-hrm, asteroid-stopwatch, asteroid-timer and
     // asteroid-weather follow the others by title.
     readonly property var everyApp: [
-        "AI", "Check-in", "Alarm Clock", "Heart Rate", "Timer", "Stopwatch", "Weather",
+        "Check-in", "Alarm Clock", "Heart Rate", "Timer", "Stopwatch", "Weather",
         "Flashlight", "Diamonds", "Agenda", "Calculator", "Heart Rate", "Music", "Settings", "Stopwatch", "Timer", "Weather"
     ]
     readonly property var everyName: [
-        "AI", "Check-in", "Alarm clock", "Heart rate", "Timer", "Stopwatch", "Weather",
+        "Check-in", "Alarm clock", "Heart rate", "Timer", "Stopwatch", "Weather",
         "Flashlight", "Diamonds", "Agenda", "Calculator", "Heart rate", "Music", "Settings", "Stopwatch", "Timer", "Weather"
     ]
     // Each logo's main colours, which its page must show; the stock drawing's
     // grey for the apps without one.
     readonly property var logoColours: {
-        "sonic-ai": ["#7c4dff"],
         "sonic-checkin": ["#2fd3b8"],
         "asteroid-alarmclock": ["#ff9f0a"],
         "sonic-heartrate": ["#ff453a", "#0a84ff"],
@@ -190,40 +189,39 @@ Scene {
     steps: [
         function(done) {
             check(listView() !== null, "the compiled-in horizontal list loads")
-            expectEqual(titles(launcherModel), everyApp, "the order: AI, Check-in, the PRD's apps, then the others by title")
-            check(allApps.itemCount === 17, "lipstick lists the 17 apps; sonic-health has NoDisplay=true")
+            expectEqual(titles(launcherModel), everyApp, "the order: Check-in, the PRD's apps, then the others by title")
+            check(allApps.itemCount === 16, "lipstick lists the 16 apps; sonic-health has NoDisplay=true")
             expectEqual(launcherModel.hiddenApps, [], "no override yet")
             var logos = []
             for (var i = 0; i < launcherModel.itemCount; i++)
                 logos.push(launcherModel.data(launcherModel.index(i, 0), logoRole))
             expectEqual(logos, [
-                "qrc:/sonic/icons/sonic-ai.svg",
                 "qrc:/sonic/icons/sonic-checkin.svg", "qrc:/sonic/icons/asteroid-alarmclock.svg",
                 "qrc:/sonic/icons/sonic-heartrate.svg", "qrc:/sonic/icons/sonic-timer.svg",
                 "qrc:/sonic/icons/sonic-stopwatch.svg", "qrc:/sonic/icons/sonic-weather.svg",
                 "qrc:/sonic/icons/asteroid-flashlight.svg", "qrc:/sonic/icons/asteroid-diamonds.svg",
                 "", "", "qrc:/sonic/icons/asteroid-hrm.svg", "", "", "qrc:/sonic/icons/asteroid-stopwatch.svg",
                 "qrc:/sonic/icons/asteroid-timer.svg", "qrc:/sonic/icons/asteroid-weather.svg"
-            ], "the logo role: AI's and the eight apps' own logos, the stock Heart Rate's, Stopwatch's, Timer's and Weather's too, none for the others")
+            ], "the logo role: the eight apps' own logos, the stock Heart Rate's, Stopwatch's, Timer's and Weather's too, none for the others")
             done()
         },
-        function(done) { pages("applist-all", "The app list, every app: AI first; Agenda, Calculator, Music and Settings have no logo of their own", done) },
+        function(done) { pages("applist-all", "The app list, every app: Check-in first; Agenda, Calculator, Music and Settings have no logo of their own", done) },
 
         // lipstick ignores an override in ~/.local/share/applications; AppListModel doesn't.
         function(done) {
             sh("mkdir -p " + userApps + " && printf '[Desktop Entry]\\nType=Application\\nName=Music\\n"
                + "Exec=asteroid-music\\nNoDisplay=true\\n' > " + userApps + "/asteroid-music.desktop")
-            waitFor(function() { return launcherModel.itemCount === 16 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 15 }, 5000,
                     "an override in ~/.local/share/applications hides Music from the list", done)
         },
         // lipstick's monitor reports changes after 2 s.
         function(done) { after(3000, done) },
         function(done) {
             check(lipstickPaths().indexOf("/usr/share/applications/asteroid-music.desktop") >= 0
-                  && allApps.itemCount === 17,
+                  && allApps.itemCount === 16,
                   "lipstick's own model still lists /usr/share/applications/asteroid-music.desktop")
             sh("rm " + userApps + "/asteroid-music.desktop")
-            waitFor(function() { return launcherModel.itemCount === 17 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 16 }, 5000,
                     "deleting it brings Music back", done)
         },
 
@@ -241,17 +239,17 @@ Scene {
                 "hidden: asteroid-stopwatch (Stopwatch)",
                 "hidden: asteroid-hrm (Heart Rate)"
             ], "hide-apps says what it hid")
-            waitFor(function() { return launcherModel.itemCount === 9 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 8 }, 5000,
                     "the list drops the eight at once", done)
         },
         function(done) { after(3000, done) },
         function(done) {
-            expectEqual(titles(launcherModel), everyApp.slice(0, 9), "the list: AI and the PRD's eight, in order")
+            expectEqual(titles(launcherModel), everyApp.slice(0, 8), "the list: the PRD's eight, in order")
             expectEqual(launcherModel.hiddenApps,
                         ["asteroid-calculator", "asteroid-calendar", "asteroid-hrm", "asteroid-music", "asteroid-settings",
                          "asteroid-stopwatch", "asteroid-timer", "asteroid-weather"],
                         "AppListModel reads the eight overrides")
-            check(allApps.itemCount === 17, "lipstick's own model still lists all 17: it ignores /usr/local/share/applications")
+            check(allApps.itemCount === 16, "lipstick's own model still lists all 16: it ignores /usr/local/share/applications")
             var status = sh(hideApps + " --status")
             expectEqual(status.output.trim().split("\n"), [
                 "hidden: asteroid-calculator",
@@ -273,16 +271,16 @@ Scene {
         function(done) {
             var result = sh(hideApps + " --show asteroid-settings")
             expectEqual(result.output.trim(), "shown: asteroid-settings", "hide-apps --show says so")
-            waitFor(function() { return launcherModel.itemCount === 10 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 9 }, 5000,
                     "--show brings Settings back", done)
         },
         function(done) {
-            expectEqual(titles(launcherModel), everyApp.slice(0, 9).concat(["Settings"]),
+            expectEqual(titles(launcherModel), everyApp.slice(0, 8).concat(["Settings"]),
                         "Settings comes back after the PRD's eight")
             // An override that hide-apps didn't write: --undo leaves it.
             sh("printf '[Desktop Entry]\\nType=Application\\nName=Diamonds\\nExec=asteroid-diamonds\\n"
                + "NoDisplay=true\\n' > /usr/local/share/applications/asteroid-diamonds.desktop")
-            waitFor(function() { return launcherModel.itemCount === 9 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 8 }, 5000,
                     "a hand-written override hides Diamonds", done)
         },
         function(done) {
@@ -293,14 +291,14 @@ Scene {
                         ["shown: asteroid-calculator", "shown: asteroid-calendar", "shown: asteroid-hrm", "shown: asteroid-music",
                          "shown: asteroid-stopwatch", "shown: asteroid-timer", "shown: asteroid-weather"],
                         "hide-apps --undo removes its own overrides")
-            waitFor(function() { return launcherModel.itemCount === 16 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 15 }, 5000,
                     "--undo brings back all but Diamonds", done)
         },
         function(done) {
             check(sh("test -f /usr/local/share/applications/asteroid-diamonds.desktop").status === 0,
                   "--undo left the hand-written override")
             sh("rm /usr/local/share/applications/asteroid-diamonds.desktop")
-            waitFor(function() { return launcherModel.itemCount === 17 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 16 }, 5000,
                     "every app is back", done)
         },
         function(done) {
@@ -309,7 +307,7 @@ Scene {
                   "--undo removes the empty override directory")
             // The directory comes back: the model must watch it again.
             sh(hideApps + " asteroid-music")
-            waitFor(function() { return launcherModel.itemCount === 16 }, 5000,
+            waitFor(function() { return launcherModel.itemCount === 15 }, 5000,
                     "an override in a re-created directory still hides", done)
         },
         function(done) {
@@ -318,7 +316,7 @@ Scene {
                   "hide-apps refuses a path for an app")
             check(sh(hideApps + " asteroid-nothing").status !== 0, "hide-apps refuses an app that isn't installed")
             sh(hideApps + " --undo")
-            waitFor(function() { return launcherModel.itemCount === 17 }, 5000, "and --undo again", done)
+            waitFor(function() { return launcherModel.itemCount === 16 }, 5000, "and --undo again", done)
         },
 
         // Back to the first app once the list is left for the watch face.
@@ -330,7 +328,7 @@ Scene {
             after(150, function() {
                 check(view.contentX === 3 * view.width, "the page stays while the list slides away")
                 waitFor(function() { return view.contentX === 0 }, 2000,
-                        "left for the watch face, the list goes back to AI", done)
+                        "left for the watch face, the list goes back to Check-in", done)
             })
         },
         function(done) {
