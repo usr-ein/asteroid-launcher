@@ -4,8 +4,7 @@
  * The round fit: the launcher's one way to scroll a lot on the round screen,
  * as the round-fit reader that Sam approved in P-019 draws its text (Sonic
  * Screwdriver's docs/prd/watch_ui.md, "The round-fit reader"; its maths is
- * RoundText.qml's, removed from the main repo in P-051: git show
- * 60e0f01:ai/watch/RoundText.qml there).
+ * RoundText.qml's, in the main repo's docs/prd/round-fit/ since P-051).
  *
  * What scrolls is drawn full size at the middle of the screen, `zoom` times
  * its own size; above and below, each row is scaled to the circle's chord at

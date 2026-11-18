@@ -201,7 +201,7 @@ Item {
 
     // Greedy word wrap at width, measured by metrics; a word wider than the
     // line (a link, a hash) is cut into pieces that fit. As the round-fit
-    // reader does (RoundText.qml, in the main repo's git history since P-051).
+    // reader does (the main repo's docs/prd/round-fit/RoundText.qml).
     function wrap(text, metrics, width) {
         var out = []
         var words = []
